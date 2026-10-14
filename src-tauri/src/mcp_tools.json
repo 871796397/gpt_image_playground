@@ -1,0 +1,50 @@
+[
+  {
+    "name": "generate_image",
+    "description": "用应用当前启用的 API 配置生成图片，结果同时写入应用的历史记录。提供 reference_images 时为图生图/编辑。会产生真实的 API 费用，且可能耗时数十秒到数分钟。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": { "type": "string", "description": "提示词" },
+        "size": { "type": "string", "description": "尺寸，如 1024x1024、1536x1024、1024x1536，或 auto；省略时沿用应用当前设置" },
+        "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"], "description": "质量；预览图用 low 或 medium 更快更省" },
+        "n": { "type": "integer", "minimum": 1, "maximum": 4, "description": "生成张数，默认 1，最多 4" },
+        "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"] },
+        "reference_images": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "参考图/待编辑图，可以是本机图片的绝对路径或 data URL，最多 8 张"
+        },
+        "output_dir": { "type": "string", "description": "可选。图片另存到该绝对路径目录，并在结果中返回文件路径" }
+      },
+      "required": ["prompt"]
+    }
+  },
+  {
+    "name": "list_history",
+    "description": "列出应用历史记录中最近的任务（提示词、状态、尺寸、图片 id），不产生费用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "description": "默认 10" }
+      }
+    }
+  },
+  {
+    "name": "get_image",
+    "description": "读取历史记录中的图片，用 list_history 或 generate_image 返回的 image id，不产生费用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "image_id": { "type": "string" },
+        "output_dir": { "type": "string", "description": "可选。另存到该绝对路径目录" }
+      },
+      "required": ["image_id"]
+    }
+  },
+  {
+    "name": "get_state",
+    "description": "返回当前启用的 API 配置名称、模型和默认生成参数，不含密钥。",
+    "inputSchema": { "type": "object", "properties": {} }
+  }
+]
