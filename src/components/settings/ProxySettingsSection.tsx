@@ -127,7 +127,7 @@ export default function ProxySettingsSection() {
           {showInput
             ? '只支持 HTTP 代理，可带用户名和密码。本机地址始终直连。'
             : mode === 'none'
-              ? '所有请求直接连接。'
+              ? 'API 请求和应用内更新不经过代理。'
               : 'API 请求和应用内更新使用的代理，修改后立即生效。系统使用自动配置脚本（PAC）时，请改为自定义并填写代理地址。'}
         </div>
       </div>

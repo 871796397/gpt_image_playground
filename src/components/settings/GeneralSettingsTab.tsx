@@ -71,7 +71,7 @@ export default function GeneralSettingsTab({
         <FontSettingField
           slot="ui"
           label="界面字体"
-          description="内置字体为 HarmonyOS Sans SC；系统字体不加载任何字体文件。"
+          description="内置字体为 HarmonyOS Sans SC；选择“系统字体”时使用系统默认的字体。"
           mode={draft.uiFont}
           name={draft.uiFontName}
           onChange={(mode, name) => commitSettings({ ...draft, uiFont: mode, uiFontName: name })}
@@ -79,7 +79,7 @@ export default function GeneralSettingsTab({
         <FontSettingField
           slot="mono"
           label="代码字体"
-          description="内置字体为 Maple Mono NF CN，用于代码块等等宽文本。"
+          description="内置字体为 Maple Mono NF CN，用于代码块。"
           mode={draft.monoFont}
           name={draft.monoFontName}
           onChange={(mode, name) => commitSettings({ ...draft, monoFont: mode, monoFontName: name })}
@@ -444,7 +444,7 @@ export default function GeneralSettingsTab({
               </button>
             </div>
             <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
-              记录警告和错误，便于排查问题。按 F12 可打开开发者工具。
+              记录警告和错误，便于排查问题。
             </div>
           </div>
           <div className="block">
