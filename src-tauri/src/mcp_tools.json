@@ -14,9 +14,12 @@
           "description": "多条提示词，每条各自生成一个任务并同时进行，一条失败不影响其他；最多 8 条，且 prompts 条数 × n 不超过 16。要同一提示词出多张独立的图，可重复填写同一条"
         },
         "size": { "type": "string", "description": "尺寸，如 1024x1024、1536x1024、1024x1536，或 auto；省略时沿用应用当前设置" },
-        "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"], "description": "质量；预览图用 low 或 medium 更快更省" },
+        "quality": { "type": "string", "enum": ["auto", "low", "medium", "high", "xhigh", "max"], "description": "质量；预览图用 low 或 medium 更快更省；xhigh、max 仅 gpt-image-2.5 系列模型支持，其他模型会自动降为 high" },
         "n": { "type": "integer", "minimum": 1, "maximum": 4, "description": "每个任务的生成张数，默认 1，最多 4" },
         "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"] },
+        "transparent_output": { "type": "boolean", "description": "输出透明背景，仅 png 或 webp 格式可用，需模型支持；省略时沿用应用当前设置" },
+        "output_compression": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "jpeg/webp 的压缩质量，png 忽略" },
+        "moderation": { "type": "string", "enum": ["auto", "low"], "description": "内容审核强度；省略时沿用应用当前设置" },
         "reference_images": {
           "type": "array",
           "items": { "type": "string" },
@@ -74,8 +77,9 @@
       "type": "object",
       "properties": {
         "size": { "type": "string", "description": "如 1024x1024、1536x1024、1024x1536，或 auto" },
-        "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"] },
+        "quality": { "type": "string", "enum": ["auto", "low", "medium", "high", "xhigh", "max"] },
         "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"] },
+        "transparent_output": { "type": "boolean", "description": "透明背景，仅 png 或 webp 格式可用，需模型支持" },
         "output_compression": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "jpeg/webp 的压缩质量，null 表示不指定" },
         "moderation": { "type": "string", "enum": ["auto", "low"] },
         "n": { "type": "integer", "minimum": 1, "maximum": 4 }

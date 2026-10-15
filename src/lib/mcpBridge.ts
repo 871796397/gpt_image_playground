@@ -45,7 +45,7 @@ const MAX_IMAGES_PER_CALL = 16
 /** 重试也没用的错误：鉴权、额度、内容审核、配置缺失，直接把错误交给 Agent */
 const NO_RETRY_PATTERN = /api key|apikey|unauthorized|forbidden|\b40[13]\b|billing|quota|insufficient|balance|safety|moderation|content[_ ]policy|policy violation|余额|额度|审核|违规|API 配置/i
 
-const QUALITIES = ['auto', 'low', 'medium', 'high']
+const QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max']
 const OUTPUT_FORMATS = ['png', 'jpeg', 'webp']
 
 function splitDataUrl(dataUrl: string) {
@@ -163,11 +163,8 @@ async function generateImage(args: Record<string, unknown>): Promise<McpReply> {
     throw new Error('应用开启了批量提示词，提示词中的分隔符会被拆成多个任务；请去掉分隔符后重试，或改用 prompts 传多条')
   }
 
-  const params: Partial<TaskParams> = {}
-  if (typeof args.size === 'string' && args.size) params.size = args.size
-  if (typeof args.quality === 'string') params.quality = args.quality as TaskParams['quality']
-  if (typeof args.output_format === 'string') params.output_format = args.output_format as TaskParams['output_format']
-  params.n = clampInt(args.n, 1, MAX_IMAGES_PER_TASK, 1)
+  const params = parseParams(args)
+  params.n = params.n ?? 1
   if (prompts.length * params.n > MAX_IMAGES_PER_CALL) {
     throw new Error(`一次调用最多生成 ${MAX_IMAGES_PER_CALL} 张图片（prompts 条数 × n），请拆成多次调用`)
   }
@@ -274,8 +271,8 @@ async function setActiveProfile(args: Record<string, unknown>): Promise<McpReply
   return { text: `已切换到 API 配置「${active.name}」，模型 ${active.model}`, images: [] }
 }
 
-function setDefaultParams(args: Record<string, unknown>): McpReply {
-  if (isPresetConfigParamsLocked()) throw new Error('应用锁定了预置参数，不能修改')
+/** 校验并解析生图参数，只返回传入的字段；generate_image 和 set_default_params 共用 */
+function parseParams(args: Record<string, unknown>): Partial<TaskParams> {
   const patch: Partial<TaskParams> = {}
   if (args.size !== undefined) {
     if (typeof args.size !== 'string' || !args.size.trim()) throw new Error('size 必须是非空字符串')
@@ -297,6 +294,20 @@ function setDefaultParams(args: Record<string, unknown>): McpReply {
     patch.output_compression = args.output_compression === null ? null : clampInt(args.output_compression, 0, 100, 100)
   }
   if (args.n !== undefined) patch.n = clampInt(args.n, 1, MAX_IMAGES_PER_TASK, 1)
+  if (args.transparent_output !== undefined) {
+    if (typeof args.transparent_output !== 'boolean') throw new Error('transparent_output 必须是 true 或 false')
+    patch.transparent_output = args.transparent_output
+    const format = patch.output_format ?? useStore.getState().params.output_format
+    if (args.transparent_output && format !== 'png' && format !== 'webp') {
+      throw new Error('透明背景只支持 png 或 webp 格式，请同时指定 output_format')
+    }
+  }
+  return patch
+}
+
+function setDefaultParams(args: Record<string, unknown>): McpReply {
+  if (isPresetConfigParamsLocked()) throw new Error('应用锁定了预置参数，不能修改')
+  const patch = parseParams(args)
   if (!Object.keys(patch).length) throw new Error('没有要修改的参数')
   useStore.getState().setParams(patch)
   return { text: `已更新默认参数：${JSON.stringify(useStore.getState().params, null, 2)}`, images: [] }
