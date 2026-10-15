@@ -400,7 +400,12 @@ fn call_tool(app: &AppHandle, params: &Value, session: Option<&str>) -> Value {
     }
 }
 
-/// 参考图可以传本机路径：读成 data URL 再交给前端，前端只处理 data URL
+/// 历史记录里的图片 id 是 64 位十六进制的 SHA-256
+fn is_image_id(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// 参考图可以传本机路径：读成 data URL 再交给前端；data URL 和历史图片 id 原样交给前端
 fn resolve_reference_images(arguments: &mut Value) -> Result<(), String> {
     let Some(items) = arguments.get_mut("reference_images").and_then(Value::as_array_mut) else {
         return Ok(());
@@ -409,7 +414,7 @@ fn resolve_reference_images(arguments: &mut Value) -> Result<(), String> {
         return Err("reference_images 最多 8 张".into());
     }
     for item in items {
-        let Some(text) = item.as_str().filter(|t| !t.starts_with("data:")) else {
+        let Some(text) = item.as_str().filter(|t| !t.starts_with("data:") && !is_image_id(t)) else {
             continue;
         };
         let path = std::path::Path::new(text);
@@ -555,6 +560,16 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn image_ids_are_not_treated_as_paths() {
+        assert!(is_image_id(&"ab".repeat(32)));
+        assert!(!is_image_id("C:/images/a.png"));
+        assert!(!is_image_id(&"zz".repeat(32)));
+        let mut args = json!({ "reference_images": ["ab".repeat(32), "data:image/png;base64,AA"] });
+        assert!(resolve_reference_images(&mut args).is_ok());
+        assert_eq!(args["reference_images"][0], "ab".repeat(32));
     }
 
     #[test]

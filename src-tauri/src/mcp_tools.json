@@ -23,7 +23,7 @@
         "reference_images": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "参考图/待编辑图，可以是本机图片的绝对路径或 data URL，最多 8 张；prompts 中的每条都会使用这组参考图"
+          "description": "参考图/待编辑图，可以是本机图片的绝对路径、data URL，或应用历史记录里的 image id（用户可在任务详情里复制，无需重新上传），最多 8 张；prompts 中的每条都会使用这组参考图"
         },
         "max_retries": { "type": "integer", "minimum": 0, "maximum": 20, "description": "每个任务失败后的最大自动重试次数，0 为不重试；省略时用应用 MCP 设置。鉴权失败、额度不足、内容审核拒绝等重试无效的错误不会重试" },
         "retry_interval": { "type": "integer", "minimum": 1, "maximum": 600, "description": "两次重试之间等待的秒数；省略时用应用 MCP 设置" },
@@ -44,14 +44,14 @@
   },
   {
     "name": "get_image",
-    "description": "读取历史记录中的图片，用 list_history 或 generate_image 返回的 image id，不产生费用。",
+    "description": "读取历史记录中的图片，不产生费用。可传 image_id（list_history 或 generate_image 返回的，或用户在任务详情里复制的），也可传 task_id 一次取回该任务的全部图片。",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "image_id": { "type": "string" },
+        "image_id": { "type": "string", "description": "图片 id；与 task_id 二选一" },
+        "task_id": { "type": "string", "description": "任务 id，返回该任务的全部图片" },
         "output_dir": { "type": "string", "description": "可选。另存到该绝对路径目录" }
-      },
-      "required": ["image_id"]
+      }
     }
   },
   {

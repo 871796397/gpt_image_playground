@@ -1701,10 +1701,27 @@ export async function initStore() {
   }
 }
 
+/** 外部（MCP）直接给出的提交内容：提交时不读写输入区、遮罩和复用配置状态；settings 用于临时指定 API 配置，不写入应用设置 */
+export interface SubmitInput {
+  prompt: string
+  inputImages: InputImage[]
+  params?: Partial<TaskParams>
+  settings?: AppSettings
+}
+
 /** 提交新任务；单条提交时返回新任务 id，批量或未能创建时返回 undefined */
-export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {}): Promise<string | undefined> {
-  const { settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, reusedTaskApiModel, showToast, setConfirmDialog } =
-    useStore.getState()
+export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean; input?: SubmitInput } = {}): Promise<string | undefined> {
+  const state = useStore.getState()
+  const { showToast, setConfirmDialog } = state
+  const input = options.input
+  const settings = input?.settings ?? state.settings
+  const prompt = input?.prompt ?? state.prompt
+  const inputImages = input?.inputImages ?? state.inputImages
+  const params = input ? { ...state.params, ...input.params } : state.params
+  const maskDraft = input ? null : state.maskDraft
+  const { reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, reusedTaskApiModel } = input
+    ? { reusedTaskApiProfileId: null, reusedTaskApiProfileName: null, reusedTaskApiProfileMissing: false, reusedTaskApiModel: null }
+    : state
 
   const normalizedSettings = normalizeSettings(settings)
   let activeProfile = getActiveApiProfile(settings)
@@ -1803,7 +1820,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     ? getTransparentRequestParams(normalizedParams)
     : { ...normalizedParams, transparent_output: false }
   const normalizedParamPatch = getChangedParams(params, taskParams)
-  if (Object.keys(normalizedParamPatch).length) {
+  if (!input && Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
   }
 
@@ -1849,11 +1866,13 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     useStore.getState().showToast('任务已提交', 'success')
   }
 
-  if (settings.clearInputAfterSubmit) {
-    useStore.getState().setPrompt('')
-    useStore.getState().clearInputImages()
+  if (!input) {
+    if (settings.clearInputAfterSubmit) {
+      useStore.getState().setPrompt('')
+      useStore.getState().clearInputImages()
+    }
+    useStore.getState().setReusedTaskApiProfile(null)
   }
-  useStore.getState().setReusedTaskApiProfile(null)
 
   if (batchPrompts.length) {
     const limit = normalizedSettings.batchPromptMode === 'queue'
@@ -4008,8 +4027,9 @@ export async function deleteFavoriteCollection(collectionId: string, deleteTasks
 }
 
 /** 按重试方式新建任务或覆盖原任务；Agent 对话中的任务始终新建；opts.overwrite 强制原地覆盖，返回开始执行的任务 id */
-export async function retryTask(task: TaskRecord, opts: { overwrite?: boolean } = {}): Promise<string | undefined> {
-  const { settings, tasks } = useStore.getState()
+export async function retryTask(task: TaskRecord, opts: { overwrite?: boolean; settings?: AppSettings } = {}): Promise<string | undefined> {
+  const { tasks } = useStore.getState()
+  const settings = opts.settings ?? useStore.getState().settings
   const source = tasks.find((item) => item.id === task.id)
   if (!source || source.status === 'running' || source.falRecoverable || source.customRecoverable) return
   const activeProfile = getActiveApiProfile(settings)

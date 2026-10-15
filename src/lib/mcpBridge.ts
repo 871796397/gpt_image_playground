@@ -95,10 +95,22 @@ function getSession(id: string | null) {
   return session
 }
 
-/** 本会话选择的配置；已被删除时视为没有选择 */
-function getSessionProfile(session: Session, settings: ReturnType<typeof normalizeSettings>) {
-  const profile = session.profileId ? settings.profiles.find((item) => item.id === session.profileId) : undefined
-  return profile ? resolveApiProfileModel(profile, session.model) : getActiveApiProfile(settings)
+/** 本会话生效的设置：选了配置时只在这份副本里切换，不改应用里的设置；配置已被删除时清除选择并跟随应用 */
+function getSessionSettings(session: Session) {
+  const settings = normalizeSettings(useStore.getState().settings)
+  if (!session.profileId) return settings
+  if (!settings.profiles.some((item) => item.id === session.profileId)) {
+    session.profileId = undefined
+    session.model = undefined
+    return settings
+  }
+  return normalizeSettings({
+    ...settings,
+    activeProfileId: session.profileId,
+    profiles: session.model
+      ? settings.profiles.map((item) => item.id === session.profileId ? { ...item, selectedModel: session.model } : item)
+      : settings.profiles,
+  })
 }
 
 function waitForTask(taskId: string) {
@@ -114,57 +126,10 @@ function waitForTask(taskId: string) {
   })
 }
 
-// 提交和重试要借用应用的输入区和当前配置，所以它们之间串行；任务一旦开始就各自运行，生成过程互相并行
-let submitQueue: Promise<unknown> = Promise.resolve()
-
-function serially<T>(fn: () => Promise<T>) {
-  const run = submitQueue.then(fn)
-  submitQueue = run.catch(() => undefined)
-  return run
-}
-
-/** 借用本会话选择的配置执行 fn，结束后还原；任务创建时会记下所用配置，之后不受还原影响 */
-async function withSessionProfile<T>(session: Session, fn: () => Promise<T>) {
-  if (!session.profileId) return fn()
-  const state = useStore.getState()
-  const previous = normalizeSettings(state.settings)
-  if (!previous.profiles.some((item) => item.id === session.profileId)) throw new Error('本会话选择的 API 配置已被删除，请重新调用 set_active_profile')
-  state.setReusedTaskApiProfile(null)
-  state.setSettings({
-    activeProfileId: session.profileId,
-    profiles: session.model
-      ? previous.profiles.map((item) => item.id === session.profileId ? { ...item, selectedModel: session.model } : item)
-      : previous.profiles,
-  })
-  try {
-    return await fn()
-  } finally {
-    useStore.getState().setSettings({ activeProfileId: previous.activeProfileId, profiles: previous.profiles })
-  }
-}
-
-function submitSerially(session: Session, prompt: string, params: Partial<TaskParams>, inputImages: InputImage[]) {
-  return serially(() => withSessionProfile(session, async () => {
-    const before = useStore.getState()
-    if (before.batchProgress) throw new Error('应用正在批量提交任务，请稍后重试')
-    // 借用后立即还原，用户正在编辑的提示词和参考图不受影响
-    const draft = { prompt: before.prompt, inputImages: before.inputImages, params: before.params, maskDraft: before.maskDraft }
-    before.clearMaskDraft()
-    before.setPrompt(prompt)
-    before.setInputImages(inputImages)
-    before.setParams(params)
-    try {
-      const taskId = await submitTask()
-      if (!taskId) throw new Error('应用没有创建任务，请检查应用中的提示或 API 配置')
-      return taskId
-    } finally {
-      const state = useStore.getState()
-      state.setPrompt(draft.prompt)
-      state.setInputImages(draft.inputImages)
-      state.setParams(draft.params)
-      if (draft.maskDraft) state.setMaskDraft(draft.maskDraft)
-    }
-  }))
+function submitJob(session: Session, prompt: string, params: Partial<TaskParams>, inputImages: InputImage[]) {
+  if (useStore.getState().batchProgress) throw new Error('应用正在批量提交任务，请稍后重试')
+  // 直接把输入交给提交流程，不填充应用的输入框，也不切换应用当前的配置
+  return submitTask({ input: { prompt, inputImages, params, settings: getSessionSettings(session) } })
 }
 
 interface JobResult {
@@ -184,7 +149,8 @@ async function runJob(
 ): Promise<JobResult> {
   let retries = 0
   try {
-    let taskId = await submitSerially(session, prompt, params, inputImages)
+    let taskId = await submitJob(session, prompt, params, inputImages)
+    if (!taskId) throw new Error('应用没有创建任务，请检查应用中的提示或 API 配置')
     session.taskIds.add(taskId)
     for (;;) {
       const task = await waitForTask(taskId)
@@ -195,7 +161,7 @@ async function runJob(
       if (!retryable) return { task, retries, error }
       retries += 1
       await new Promise((resolve) => setTimeout(resolve, retryInterval * 1000))
-      const next = await serially(() => withSessionProfile(session, () => retryTask(task, { overwrite: true })))
+      const next = await retryTask(task, { overwrite: true, settings: getSessionSettings(session) })
       if (!next) throw new Error('任务在重试前被删除')
       taskId = next
     }
@@ -214,7 +180,7 @@ async function generateImage(session: Session, args: Record<string, unknown>): P
   if (prompts.length > MAX_PROMPTS_PER_CALL) throw new Error(`prompts 最多 ${MAX_PROMPTS_PER_CALL} 条`)
 
   const settings = normalizeSettings(useStore.getState().settings)
-  const profileError = validateApiProfile(getSessionProfile(session, settings))
+  const profileError = validateApiProfile(getActiveApiProfile(getSessionSettings(session)))
   if (profileError) throw new Error(`应用中的 API 配置不完整：${profileError}`)
   if (settings.showBatchPrompt && settings.batchPromptEnabled && prompts.some((item) => splitBatchPrompts(item).length > 1)) {
     throw new Error('应用开启了批量提示词，提示词中的分隔符会被拆成多个任务；请去掉分隔符后重试，或改用 prompts 传多条')
@@ -230,8 +196,15 @@ async function generateImage(session: Session, args: Record<string, unknown>): P
   const references = Array.isArray(args.reference_images) ? args.reference_images : []
   const inputImages: InputImage[] = []
   for (const item of references) {
-    if (typeof item !== 'string' || !splitDataUrl(item)) throw new Error('reference_images 中有无法识别的图片')
-    inputImages.push({ id: await storeImage(item), dataUrl: item })
+    if (typeof item !== 'string') throw new Error('reference_images 中有无法识别的图片')
+    if (splitDataUrl(item)) {
+      inputImages.push({ id: await storeImage(item), dataUrl: item })
+      continue
+    }
+    // 不是 data URL 时按历史记录里的 image id 处理，省去重新上传
+    const dataUrl = await ensureImageCached(item)
+    if (!dataUrl) throw new Error(`reference_images 中的 image id 找不到图片：${item}`)
+    inputImages.push({ id: item, dataUrl })
   }
 
   const status = await getMcpStatus()
@@ -276,16 +249,18 @@ function listHistory(session: Session, args: Record<string, unknown>): McpReply 
 }
 
 async function getImage(args: Record<string, unknown>): Promise<McpReply> {
-  const id = typeof args.image_id === 'string' ? args.image_id : ''
-  const images = await readImages(id ? [id] : [])
-  if (!images.length) throw new Error('找不到这张图片')
-  return { text: `image id：${id}`, images }
+  const imageId = typeof args.image_id === 'string' ? args.image_id.trim() : ''
+  const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
+  const ids = imageId ? [imageId] : useStore.getState().tasks.find((task) => task.id === taskId)?.outputImages ?? []
+  const images = await readImages(ids)
+  if (!images.length) throw new Error(imageId || !taskId ? '找不到这张图片' : '找不到这个任务，或它没有图片')
+  return { text: `image id：${ids.join('、')}`, images }
 }
 
 async function getState(session: Session): Promise<McpReply> {
   const { settings, params } = useStore.getState()
   const normalized = normalizeSettings(settings)
-  const profile = getSessionProfile(session, normalized)
+  const profile = getActiveApiProfile(getSessionSettings(session))
   const mcp = await getMcpStatus()
   const state = {
     active_profile: profile.name,
@@ -327,7 +302,7 @@ function setActiveProfile(session: Session, args: Record<string, unknown>): McpR
   }
   session.profileId = profile.id
   session.model = model || undefined
-  const active = getSessionProfile(session, settings)
+  const active = getActiveApiProfile(getSessionSettings(session))
   return { text: `本会话已切换到 API 配置「${active.name}」，模型 ${active.model}（不影响应用界面和其他会话）`, images: [] }
 }
 
