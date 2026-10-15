@@ -535,7 +535,10 @@ fn copy_tree(from: &Path, to: &Path, progress: &Progress) -> io::Result<()> {
         let (src, dst) = (entry.path(), to.join(entry.file_name()));
         let meta = fs::symlink_metadata(&src)?;
         if meta.file_type().is_symlink() {
-            return Err(io::Error::other(format!("数据目录中有符号链接，无法复制：{}", shown(&src))));
+            return Err(io::Error::other(format!(
+                "数据目录中有符号链接，无法复制：{}",
+                shown(&src)
+            )));
         }
         if meta.is_dir() {
             fs::create_dir(&dst)?;
@@ -1124,7 +1127,8 @@ pub async fn data_dir_change(app: AppHandle, picked: State<'_, PickedDir>) -> Re
             std::process::id(),
             pointer_text(&base, &to, removable_base(&base)).unwrap_or_default()
         );
-        write_atomic(&base.join(PENDING), &text).map_err(|err| format!("无法开始更改数据目录，请确认安装目录可以写入后重试。（{err}）"))
+        write_atomic(&base.join(PENDING), &text)
+            .map_err(|err| format!("无法开始更改数据目录，请确认安装目录可以写入后重试。（{err}）"))
     })?;
     // 触发正常退出流程（单实例锁、未完成的保存等在 Exit 事件中清理），随后启动新进程
     app.request_restart();

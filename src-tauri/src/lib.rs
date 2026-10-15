@@ -135,7 +135,9 @@ pub fn run() {
             app.manage(proxy::Proxy::load(&state));
             app.manage(state);
             let info = app.package_info().clone();
-            tauri::async_runtime::spawn_blocking(move || update::cleanup(&info.name, &info.version));
+            tauri::async_runtime::spawn_blocking(move || {
+                update::cleanup(&info.name, &info.version)
+            });
             // WebView2 在页面加载出来之前是白色背景，深色模式下启动会白闪。页面只跟随系统主题，
             // 创建窗口时就按系统主题设为 body 的背景色（bg-gray-50 / dark:bg-gray-950）；窗口建好后再设置为时已晚。
             // 读取失败时按浅色处理
