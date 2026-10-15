@@ -1701,8 +1701,8 @@ export async function initStore() {
   }
 }
 
-/** 提交新任务 */
-export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {}) {
+/** 提交新任务；单条提交时返回新任务 id，批量或未能创建时返回 undefined */
+export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {}): Promise<string | undefined> {
   const { settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, reusedTaskApiModel, showToast, setConfirmDialog } =
     useStore.getState()
 
@@ -1841,10 +1841,11 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     return task.id
   }
 
+  let singleTaskId: string | undefined
   if (batchPrompts.length) {
     useStore.getState().showToast(`已开始批量提交 ${batchPrompts.length} 条提示词`, 'success')
   } else {
-    await startTask(prompt.trim())
+    singleTaskId = await startTask(prompt.trim())
     useStore.getState().showToast('任务已提交', 'success')
   }
 
@@ -1860,6 +1861,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
       : normalizedSettings.batchPromptConcurrencyLimited ? normalizedSettings.batchPromptConcurrency : batchPrompts.length
     await runBatchPrompts(batchId, batchPrompts, limit, startTask)
   }
+  return singleTaskId
 }
 
 // 当前批量的标识，停止或结束时递增使旧批量失效；批量任务不单独弹出完成提示和失败详情
@@ -4005,8 +4007,8 @@ export async function deleteFavoriteCollection(collectionId: string, deleteTasks
   useStore.getState().showToast(`已删除收藏夹「${collection.name}」`, 'success')
 }
 
-/** 按重试方式新建任务或覆盖原任务；Agent 对话中的任务始终新建 */
-export async function retryTask(task: TaskRecord) {
+/** 按重试方式新建任务或覆盖原任务；Agent 对话中的任务始终新建；opts.overwrite 强制原地覆盖，返回开始执行的任务 id */
+export async function retryTask(task: TaskRecord, opts: { overwrite?: boolean } = {}): Promise<string | undefined> {
   const { settings, tasks } = useStore.getState()
   const source = tasks.find((item) => item.id === task.id)
   if (!source || source.status === 'running' || source.falRecoverable || source.customRecoverable) return
@@ -4020,6 +4022,7 @@ export async function retryTask(task: TaskRecord) {
     ? createTransparentOutputMeta(source.prompt.trim())
     : null
   const overwrite = !isAgentTask(source) && (
+    opts.overwrite ||
     settings.retryMode === 'overwriteAll' || (settings.retryMode === 'overwriteFailed' && source.status === 'error')
   )
   const taskId = overwrite ? source.id : genId()
@@ -4083,6 +4086,7 @@ export async function retryTask(task: TaskRecord) {
   }
 
   executeTask(taskId)
+  return taskId
 }
 
 /** 复用配置 */

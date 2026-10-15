@@ -1,23 +1,31 @@
 [
   {
     "name": "generate_image",
-    "description": "用应用当前启用的 API 配置生成图片，结果同时写入应用的历史记录。提供 reference_images 时为图生图/编辑。会产生真实的 API 费用，且可能耗时数十秒到数分钟。",
+    "description": "用应用当前启用的 API 配置生成图片，结果同时写入应用的历史记录。提供 reference_images 时为图生图/编辑。会产生真实的 API 费用，且可能耗时数十秒到数分钟。支持并行：同时发起多个调用，或用 prompts 一次提交多条提示词，它们会同时生成。生成失败时自动重试（次数和间隔默认取应用 MCP 设置，可用 max_retries / retry_interval 覆盖）。",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "prompt": { "type": "string", "description": "提示词" },
+        "prompt": { "type": "string", "description": "提示词；与 prompts 二选一" },
+        "prompts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "多条提示词，每条各自生成一个任务并同时进行，一条失败不影响其他；最多 8 条，且 prompts 条数 × n 不超过 16。要同一提示词出多张独立的图，可重复填写同一条"
+        },
         "size": { "type": "string", "description": "尺寸，如 1024x1024、1536x1024、1024x1536，或 auto；省略时沿用应用当前设置" },
         "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"], "description": "质量；预览图用 low 或 medium 更快更省" },
-        "n": { "type": "integer", "minimum": 1, "maximum": 4, "description": "生成张数，默认 1，最多 4" },
+        "n": { "type": "integer", "minimum": 1, "maximum": 4, "description": "每个任务的生成张数，默认 1，最多 4" },
         "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"] },
         "reference_images": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "参考图/待编辑图，可以是本机图片的绝对路径或 data URL，最多 8 张"
+          "description": "参考图/待编辑图，可以是本机图片的绝对路径或 data URL，最多 8 张；prompts 中的每条都会使用这组参考图"
         },
+        "max_retries": { "type": "integer", "minimum": 0, "maximum": 20, "description": "每个任务失败后的最大自动重试次数，0 为不重试；省略时用应用 MCP 设置。鉴权失败、额度不足、内容审核拒绝等重试无效的错误不会重试" },
+        "retry_interval": { "type": "integer", "minimum": 1, "maximum": 600, "description": "两次重试之间等待的秒数；省略时用应用 MCP 设置" },
         "output_dir": { "type": "string", "description": "可选。图片另存到该绝对路径目录，并在结果中返回文件路径" }
-      },
-      "required": ["prompt"]
+      }
     }
   },
   {
@@ -44,7 +52,34 @@
   },
   {
     "name": "get_state",
-    "description": "返回当前启用的 API 配置名称、模型和默认生成参数，不含密钥。",
+    "description": "返回应用中所有 API 配置（名称、供应商、可选模型，标出当前启用的一个）、默认生成参数和自动重试设置，不含密钥。",
     "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "set_active_profile",
+    "description": "切换应用当前启用的 API 配置，可同时选择该配置下的模型。会改变应用里用户看到的当前配置，后续生成都使用它；配置名称和 id 见 get_state。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": { "type": "string", "description": "配置的 id 或名称" },
+        "model": { "type": "string", "description": "可选。该配置模型列表中的模型 ID" }
+      },
+      "required": ["profile"]
+    }
+  },
+  {
+    "name": "set_default_params",
+    "description": "修改应用里的默认生成参数（即首页参数区的值），generate_image 省略的参数会沿用它们。只修改传入的字段。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "size": { "type": "string", "description": "如 1024x1024、1536x1024、1024x1536，或 auto" },
+        "quality": { "type": "string", "enum": ["auto", "low", "medium", "high"] },
+        "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"] },
+        "output_compression": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "jpeg/webp 的压缩质量，null 表示不指定" },
+        "moderation": { "type": "string", "enum": ["auto", "low"] },
+        "n": { "type": "integer", "minimum": 1, "maximum": 4 }
+      }
+    }
   }
 ]

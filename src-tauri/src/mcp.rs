@@ -18,9 +18,12 @@ use crate::storage::{Storage, StorageState};
 
 const META_KEY: &str = "mcp";
 const DEFAULT_PORT: u16 = 8765;
+const DEFAULT_MAX_RETRIES: u8 = 2;
+const MAX_RETRIES_LIMIT: u8 = 20;
+const DEFAULT_RETRY_INTERVAL: u16 = 5;
 const MAX_BODY: u64 = 4 * 1024 * 1024;
-/// 生图可能要几分钟，超过后向 Agent 返回超时错误；任务本身仍会在应用里继续并进入历史
-const CALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// 生图可能要几分钟，带自动重试和多提示词并行时更久，超过后向 Agent 返回超时错误；任务本身仍会在应用里继续并进入历史
+const CALL_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const HEARTBEAT_PAD: usize = 8192;
 const TOOLS: &str = include_str!("mcp_tools.json");
 
@@ -29,19 +32,42 @@ struct Setting {
     enabled: bool,
     port: u16,
     token: String,
+    /// 生图失败后的自动重试次数，0 表示不重试；旧版本保存的设置没有这两项，用默认值
+    #[serde(default = "default_max_retries")]
+    max_retries: u8,
+    /// 两次重试之间等待的秒数
+    #[serde(default = "default_retry_interval")]
+    retry_interval: u16,
+}
+
+fn default_max_retries() -> u8 {
+    DEFAULT_MAX_RETRIES
+}
+
+fn default_retry_interval() -> u16 {
+    DEFAULT_RETRY_INTERVAL
 }
 
 impl Default for Setting {
     fn default() -> Self {
-        Setting { enabled: false, port: DEFAULT_PORT, token: String::new() }
+        Setting {
+            enabled: false,
+            port: DEFAULT_PORT,
+            token: String::new(),
+            max_retries: DEFAULT_MAX_RETRIES,
+            retry_interval: DEFAULT_RETRY_INTERVAL,
+        }
     }
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Status {
     enabled: bool,
     port: u16,
     token: String,
+    max_retries: u8,
+    retry_interval: u16,
     running: bool,
     error: Option<String>,
 }
@@ -104,6 +130,8 @@ fn status(setting: Setting, running: &Running) -> Status {
         enabled: setting.enabled,
         port: setting.port,
         token: setting.token,
+        max_retries: setting.max_retries,
+        retry_interval: setting.retry_interval,
         running: running.server.is_some(),
         error: running.error.clone(),
     }
@@ -113,14 +141,21 @@ fn status(setting: Setting, running: &Running) -> Status {
 fn apply(app: &AppHandle, setting: &Setting) {
     let mcp = app.state::<Mcp>();
     let mut running = mcp.running.lock().unwrap_or_else(|err| err.into_inner());
-    if let Some(server) = running.server.take() {
-        server.unblock();
-    }
+    let restarting = running.server.take().map(|server| server.unblock()).is_some();
     running.error = None;
     if !setting.enabled {
         return;
     }
-    match Server::http(("127.0.0.1", setting.port)) {
+    let mut bound = Server::http(("127.0.0.1", setting.port));
+    // 旧监听线程在 unblock 后异步退出，端口要稍后才释放；重启时短暂重试，避免误报端口被占用
+    for _ in 0..30 {
+        if !restarting || bound.is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        bound = Server::http(("127.0.0.1", setting.port));
+    }
+    match bound {
         Ok(server) => {
             let server = Arc::new(server);
             running.server = Some(server.clone());
@@ -349,7 +384,7 @@ fn call_tool(app: &AppHandle, params: &Value) -> Value {
     };
     mcp.pending.lock().unwrap_or_else(|err| err.into_inner()).remove(&id);
     match result {
-        Ok(reply) => build_result(reply, arguments.get("output_dir").and_then(Value::as_str)),
+        Ok(reply) => build_result(reply, arguments.get("output_dir").and_then(Value::as_str), id),
         Err(message) => tool_error(message),
     }
 }
@@ -386,7 +421,7 @@ fn resolve_reference_images(arguments: &mut Value) -> Result<(), String> {
 }
 
 /// 图片以 MCP image 内容返回；指定 output_dir 时同时写入文件并在文本中列出路径，方便 Agent 直接引用到工程里
-fn build_result(reply: Reply, output_dir: Option<&str>) -> Value {
+fn build_result(reply: Reply, output_dir: Option<&str>, call_id: u64) -> Value {
     let mut text = reply.text;
     if let Some(dir) = output_dir.filter(|d| !d.trim().is_empty()) {
         let dir = std::path::Path::new(dir);
@@ -405,7 +440,8 @@ fn build_result(reply: Reply, output_dir: Option<&str>) -> Value {
                 "image/webp" => "webp",
                 _ => "png",
             };
-            let path = dir.join(format!("gpt-image-{stamp}-{}.{ext}", index + 1));
+            // 并行调用可能在同一毫秒写入同一目录，文件名带上调用 id 避免互相覆盖
+            let path = dir.join(format!("gpt-image-{stamp}-{call_id}-{}.{ext}", index + 1));
             let written = base64::engine::general_purpose::STANDARD
                 .decode(&image.data)
                 .map_err(|err| err.to_string())
@@ -440,21 +476,40 @@ pub async fn mcp_set(
     enabled: bool,
     port: u16,
     regenerate_token: bool,
+    max_retries: u8,
+    retry_interval: u16,
     storage: State<'_, StorageState>,
     mcp: State<'_, Mcp>,
 ) -> Result<Status, String> {
     if port < 1024 {
         return Err("端口需在 1024–65535 之间".into());
     }
+    if max_retries > MAX_RETRIES_LIMIT {
+        return Err(format!("自动重试次数最多 {MAX_RETRIES_LIMIT} 次"));
+    }
+    if !(1..=600).contains(&retry_interval) {
+        return Err("重试间隔需在 1–600 秒之间".into());
+    }
     let storage = storage.0.as_deref().map_err(|err| err.message.clone())?;
     let mut setting = tokio::task::block_in_place(|| read(storage));
+    let previous = setting.clone();
     if setting.token.is_empty() || regenerate_token {
         setting.token = new_token();
     }
     setting.enabled = enabled;
     setting.port = port;
+    setting.max_retries = max_retries;
+    setting.retry_interval = retry_interval;
     tokio::task::block_in_place(|| save(storage, &setting))?;
-    apply(&app, &setting);
+    // 只改重试等与监听无关的设置时不重启服务；上次启动失败时仍要重试
+    let listening = mcp.running.lock().unwrap_or_else(|err| err.into_inner()).server.is_some();
+    let unchanged = previous.enabled == setting.enabled
+        && previous.port == setting.port
+        && previous.token == setting.token
+        && listening == setting.enabled;
+    if !unchanged {
+        tokio::task::block_in_place(|| apply(&app, &setting));
+    }
     let running = mcp.running.lock().unwrap_or_else(|err| err.into_inner());
     Ok(status(setting, &running))
 }
@@ -489,6 +544,13 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn old_settings_get_default_retry_options() {
+        let setting: Setting = serde_json::from_str(r#"{"enabled":true,"port":9000,"token":"t"}"#).unwrap();
+        assert_eq!(setting.max_retries, DEFAULT_MAX_RETRIES);
+        assert_eq!(setting.retry_interval, DEFAULT_RETRY_INTERVAL);
     }
 
     #[test]

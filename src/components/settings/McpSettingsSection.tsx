@@ -22,6 +22,8 @@ export default function McpSettingsSection() {
   const showToast = useStore((s) => s.showToast)
   const [status, setStatus] = useState<McpStatus | null>(null)
   const [port, setPort] = useState('')
+  const [maxRetries, setMaxRetries] = useState('')
+  const [retryInterval, setRetryInterval] = useState('')
   const [client, setClient] = useState<McpClient>('claude')
   const [showToken, setShowToken] = useState(false)
   const [error, setError] = useState('')
@@ -31,6 +33,8 @@ export default function McpSettingsSection() {
       .then((next) => {
         setStatus(next)
         setPort(String(next.port))
+        setMaxRetries(String(next.maxRetries))
+        setRetryInterval(String(next.retryInterval))
       })
       .catch((err) => setError(typeof err === 'string' ? err : '读取 MCP 设置失败'))
   }, [])
@@ -41,8 +45,18 @@ export default function McpSettingsSection() {
       setError('端口需在 1024–65535 之间')
       return
     }
+    const nextRetries = Number(maxRetries)
+    if (maxRetries === '' || !Number.isInteger(nextRetries) || nextRetries < 0 || nextRetries > 20) {
+      setError('自动重试次数需在 0–20 之间')
+      return
+    }
+    const nextInterval = Number(retryInterval)
+    if (retryInterval === '' || !Number.isInteger(nextInterval) || nextInterval < 1 || nextInterval > 600) {
+      setError('重试间隔需在 1–600 秒之间')
+      return
+    }
     try {
-      const next = await setMcpStatus(enabled, nextPort, regenerateToken)
+      const next = await setMcpStatus({ enabled, port: nextPort, regenerateToken, maxRetries: nextRetries, retryInterval: nextInterval })
       setStatus(next)
       setError(next.error ?? '')
       if (regenerateToken) showToast('已重新生成 token，旧 token 立即失效', 'success')
@@ -96,6 +110,35 @@ export default function McpSettingsSection() {
               inputMode="numeric"
               aria-label="MCP 端口"
               className={`w-24 text-right ${inputClass}`}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="block text-sm text-gray-600 dark:text-gray-300">失败自动重试次数</span>
+              <span className="block text-xs text-gray-500">每个任务生成失败后自动重试的最多次数，0 为不重试；鉴权失败、额度不足、内容审核拒绝不会重试。Agent 调用时也可单独指定</span>
+            </div>
+            <input
+              value={maxRetries}
+              onChange={(e) => setMaxRetries(e.target.value.replace(/\D/g, ''))}
+              onBlur={() => {
+                if (maxRetries !== String(status.maxRetries)) void apply(status.enabled)
+              }}
+              inputMode="numeric"
+              aria-label="MCP 自动重试次数"
+              className={`w-24 shrink-0 text-right ${inputClass}`}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="block text-sm text-gray-600 dark:text-gray-300">重试间隔（秒）</span>
+            <input
+              value={retryInterval}
+              onChange={(e) => setRetryInterval(e.target.value.replace(/\D/g, ''))}
+              onBlur={() => {
+                if (retryInterval !== String(status.retryInterval)) void apply(status.enabled)
+              }}
+              inputMode="numeric"
+              aria-label="MCP 重试间隔"
+              className={`w-24 shrink-0 text-right ${inputClass}`}
             />
           </div>
           <div className="flex items-center justify-between gap-3">
