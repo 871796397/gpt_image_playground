@@ -1,10 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { splitBatchPrompts } from './batchPrompts'
-import { getActiveApiProfile, normalizeSettings, splitModelList, validateApiProfile } from './apiProfiles'
+import { getActiveApiProfile, normalizeSettings, resolveApiProfileModel, splitModelList, validateApiProfile } from './apiProfiles'
 import { storeImage } from './db'
 import { ensureImageCached } from './imageCache'
-import { isPresetConfigOnlyEnabled, isPresetConfigParamsLocked, isPresetProfile } from './presetConfig'
+import { isPresetConfigOnlyEnabled, isPresetProfile } from './presetConfig'
 import { retryTask, submitTask, useStore } from '../store'
 import type { InputImage, TaskParams, TaskRecord } from '../types'
 
@@ -31,6 +31,8 @@ interface McpRequest {
   id: number
   tool: string
   arguments: Record<string, unknown>
+  /** Rust 侧在初始化时发放的会话 id；客户端没有带回时为 null */
+  session: string | null
 }
 
 interface McpReply {
@@ -70,6 +72,35 @@ async function readImages(ids: string[]) {
   return images
 }
 
+/** 每个 Agent 会话各自的覆盖：切换配置和默认参数只对该会话生效，不改应用里的设置；taskIds 是它自己生成的任务 */
+interface Session {
+  params: Partial<TaskParams>
+  profileId?: string
+  model?: string
+  taskIds: Set<string>
+}
+
+const MAX_SESSIONS = 50
+// 没带会话 id 的客户端共用 '' 这一份；超过上限时丢弃最早的会话
+const sessions = new Map<string, Session>()
+
+function getSession(id: string | null) {
+  const key = id ?? ''
+  let session = sessions.get(key)
+  if (!session) {
+    session = { params: {}, taskIds: new Set() }
+    sessions.set(key, session)
+    if (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value as string)
+  }
+  return session
+}
+
+/** 本会话选择的配置；已被删除时视为没有选择 */
+function getSessionProfile(session: Session, settings: ReturnType<typeof normalizeSettings>) {
+  const profile = session.profileId ? settings.profiles.find((item) => item.id === session.profileId) : undefined
+  return profile ? resolveApiProfileModel(profile, session.model) : getActiveApiProfile(settings)
+}
+
 function waitForTask(taskId: string) {
   const find = () => useStore.getState().tasks.find((task) => task.id === taskId)
   return new Promise<TaskRecord | undefined>((resolve) => {
@@ -83,11 +114,37 @@ function waitForTask(taskId: string) {
   })
 }
 
-// 提交要借用应用的输入区，所以提交之间串行；任务一旦创建就各自运行，生成过程互相并行
+// 提交和重试要借用应用的输入区和当前配置，所以它们之间串行；任务一旦开始就各自运行，生成过程互相并行
 let submitQueue: Promise<unknown> = Promise.resolve()
 
-function submitSerially(prompt: string, params: Partial<TaskParams>, inputImages: InputImage[]) {
-  const run = submitQueue.then(async () => {
+function serially<T>(fn: () => Promise<T>) {
+  const run = submitQueue.then(fn)
+  submitQueue = run.catch(() => undefined)
+  return run
+}
+
+/** 借用本会话选择的配置执行 fn，结束后还原；任务创建时会记下所用配置，之后不受还原影响 */
+async function withSessionProfile<T>(session: Session, fn: () => Promise<T>) {
+  if (!session.profileId) return fn()
+  const state = useStore.getState()
+  const previous = normalizeSettings(state.settings)
+  if (!previous.profiles.some((item) => item.id === session.profileId)) throw new Error('本会话选择的 API 配置已被删除，请重新调用 set_active_profile')
+  state.setReusedTaskApiProfile(null)
+  state.setSettings({
+    activeProfileId: session.profileId,
+    profiles: session.model
+      ? previous.profiles.map((item) => item.id === session.profileId ? { ...item, selectedModel: session.model } : item)
+      : previous.profiles,
+  })
+  try {
+    return await fn()
+  } finally {
+    useStore.getState().setSettings({ activeProfileId: previous.activeProfileId, profiles: previous.profiles })
+  }
+}
+
+function submitSerially(session: Session, prompt: string, params: Partial<TaskParams>, inputImages: InputImage[]) {
+  return serially(() => withSessionProfile(session, async () => {
     const before = useStore.getState()
     if (before.batchProgress) throw new Error('应用正在批量提交任务，请稍后重试')
     // 借用后立即还原，用户正在编辑的提示词和参考图不受影响
@@ -107,9 +164,7 @@ function submitSerially(prompt: string, params: Partial<TaskParams>, inputImages
       state.setParams(draft.params)
       if (draft.maskDraft) state.setMaskDraft(draft.maskDraft)
     }
-  })
-  submitQueue = run.catch(() => undefined)
-  return run
+  }))
 }
 
 interface JobResult {
@@ -120,6 +175,7 @@ interface JobResult {
 
 /** 提交一个任务并等它结束；失败时按设置原地重试，鉴权、额度、审核类错误不重试 */
 async function runJob(
+  session: Session,
   prompt: string,
   params: Partial<TaskParams>,
   inputImages: InputImage[],
@@ -128,7 +184,8 @@ async function runJob(
 ): Promise<JobResult> {
   let retries = 0
   try {
-    let taskId = await submitSerially(prompt, params, inputImages)
+    let taskId = await submitSerially(session, prompt, params, inputImages)
+    session.taskIds.add(taskId)
     for (;;) {
       const task = await waitForTask(taskId)
       if (!task) throw new Error('任务在完成前被删除')
@@ -138,7 +195,7 @@ async function runJob(
       if (!retryable) return { task, retries, error }
       retries += 1
       await new Promise((resolve) => setTimeout(resolve, retryInterval * 1000))
-      const next = await retryTask(task, { overwrite: true })
+      const next = await serially(() => withSessionProfile(session, () => retryTask(task, { overwrite: true })))
       if (!next) throw new Error('任务在重试前被删除')
       taskId = next
     }
@@ -147,7 +204,7 @@ async function runJob(
   }
 }
 
-async function generateImage(args: Record<string, unknown>): Promise<McpReply> {
+async function generateImage(session: Session, args: Record<string, unknown>): Promise<McpReply> {
   const fromList = Array.isArray(args.prompts)
     ? args.prompts.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
     : []
@@ -157,14 +214,15 @@ async function generateImage(args: Record<string, unknown>): Promise<McpReply> {
   if (prompts.length > MAX_PROMPTS_PER_CALL) throw new Error(`prompts 最多 ${MAX_PROMPTS_PER_CALL} 条`)
 
   const settings = normalizeSettings(useStore.getState().settings)
-  const profileError = validateApiProfile(getActiveApiProfile(settings))
+  const profileError = validateApiProfile(getSessionProfile(session, settings))
   if (profileError) throw new Error(`应用中的 API 配置不完整：${profileError}`)
   if (settings.showBatchPrompt && settings.batchPromptEnabled && prompts.some((item) => splitBatchPrompts(item).length > 1)) {
     throw new Error('应用开启了批量提示词，提示词中的分隔符会被拆成多个任务；请去掉分隔符后重试，或改用 prompts 传多条')
   }
 
-  const params = parseParams(args)
-  params.n = params.n ?? 1
+  // 应用当前值 < 本会话覆盖 < 本次调用的参数；张数不沿用应用的设置，省略时为 1
+  const params = { n: 1, ...session.params, ...parseParams(args) }
+  checkTransparent(params)
   if (prompts.length * params.n > MAX_IMAGES_PER_CALL) {
     throw new Error(`一次调用最多生成 ${MAX_IMAGES_PER_CALL} 张图片（prompts 条数 × n），请拆成多次调用`)
   }
@@ -179,7 +237,7 @@ async function generateImage(args: Record<string, unknown>): Promise<McpReply> {
   const status = await getMcpStatus()
   const maxRetries = clampInt(args.max_retries, 0, 20, status.maxRetries)
   const retryInterval = clampInt(args.retry_interval, 1, 600, status.retryInterval)
-  const results = await Promise.all(prompts.map((prompt) => runJob(prompt, params, inputImages, maxRetries, retryInterval)))
+  const results = await Promise.all(prompts.map((prompt) => runJob(session, prompt, params, inputImages, maxRetries, retryInterval)))
 
   const images: McpReply['images'] = []
   const lines: string[] = []
@@ -199,9 +257,11 @@ async function generateImage(args: Record<string, unknown>): Promise<McpReply> {
   return { text: lines.join('\n'), images }
 }
 
-function listHistory(args: Record<string, unknown>): McpReply {
+function listHistory(session: Session, args: Record<string, unknown>): McpReply {
   const limit = Math.min(50, Math.max(1, Math.floor(Number(args.limit) || 10)))
-  const items = useStore.getState().tasks.slice(0, limit).map((task) => ({
+  // 默认只列出本会话自己生成的任务，all 为 true 时列出应用里的全部历史（含用户自己生成的）
+  const tasks = useStore.getState().tasks.filter((task) => args.all === true || session.taskIds.has(task.id))
+  const items = tasks.slice(0, limit).map((task) => ({
     task_id: task.id,
     status: task.status,
     prompt: task.prompt,
@@ -222,10 +282,10 @@ async function getImage(args: Record<string, unknown>): Promise<McpReply> {
   return { text: `image id：${id}`, images }
 }
 
-async function getState(): Promise<McpReply> {
+async function getState(session: Session): Promise<McpReply> {
   const { settings, params } = useStore.getState()
   const normalized = normalizeSettings(settings)
-  const profile = getActiveApiProfile(normalized)
+  const profile = getSessionProfile(session, normalized)
   const mcp = await getMcpStatus()
   const state = {
     active_profile: profile.name,
@@ -235,18 +295,24 @@ async function getState(): Promise<McpReply> {
       provider: item.provider,
       models: splitModelList(item.model),
       api_mode: item.apiMode,
-      active: item.id === normalized.activeProfileId,
+      active: item.id === profile.id,
     })),
     provider: profile.provider,
     model: profile.model,
     api_mode: profile.apiMode,
-    default_params: params,
+    default_params: { ...params, ...session.params },
+    session_overrides: { profile: session.profileId ?? null, model: session.model ?? null, params: session.params },
     auto_retry: { max_retries: mcp.maxRetries, retry_interval_seconds: mcp.retryInterval },
   }
   return { text: JSON.stringify(state, null, 2), images: [] }
 }
 
-async function setActiveProfile(args: Record<string, unknown>): Promise<McpReply> {
+function setActiveProfile(session: Session, args: Record<string, unknown>): McpReply {
+  if (args.reset === true) {
+    session.profileId = undefined
+    session.model = undefined
+    return { text: '已恢复为跟随应用当前启用的 API 配置', images: [] }
+  }
   const query = typeof args.profile === 'string' ? args.profile.trim() : ''
   const settings = normalizeSettings(useStore.getState().settings)
   const profile = settings.profiles.find((item) => item.id === query)
@@ -259,16 +325,10 @@ async function setActiveProfile(args: Record<string, unknown>): Promise<McpReply
   if (model && !splitModelList(profile.model).includes(model)) {
     throw new Error(`配置「${profile.name}」没有模型「${model}」，可用的有：${splitModelList(profile.model).join('、')}`)
   }
-  const state = useStore.getState()
-  state.setReusedTaskApiProfile(null)
-  state.setSettings({
-    activeProfileId: profile.id,
-    profiles: model
-      ? settings.profiles.map((item) => item.id === profile.id ? { ...item, selectedModel: model } : item)
-      : settings.profiles,
-  })
-  const active = getActiveApiProfile(useStore.getState().settings)
-  return { text: `已切换到 API 配置「${active.name}」，模型 ${active.model}`, images: [] }
+  session.profileId = profile.id
+  session.model = model || undefined
+  const active = getSessionProfile(session, settings)
+  return { text: `本会话已切换到 API 配置「${active.name}」，模型 ${active.model}（不影响应用界面和其他会话）`, images: [] }
 }
 
 /** 校验并解析生图参数，只返回传入的字段；generate_image 和 set_default_params 共用 */
@@ -297,36 +357,46 @@ function parseParams(args: Record<string, unknown>): Partial<TaskParams> {
   if (args.transparent_output !== undefined) {
     if (typeof args.transparent_output !== 'boolean') throw new Error('transparent_output 必须是 true 或 false')
     patch.transparent_output = args.transparent_output
-    const format = patch.output_format ?? useStore.getState().params.output_format
-    if (args.transparent_output && format !== 'png' && format !== 'webp') {
-      throw new Error('透明背景只支持 png 或 webp 格式，请同时指定 output_format')
-    }
   }
   return patch
 }
 
-function setDefaultParams(args: Record<string, unknown>): McpReply {
-  if (isPresetConfigParamsLocked()) throw new Error('应用锁定了预置参数，不能修改')
+/** 透明背景只支持 png 或 webp；格式未指定时看应用当前格式 */
+function checkTransparent(params: Partial<TaskParams>) {
+  const format = params.output_format ?? useStore.getState().params.output_format
+  if (params.transparent_output && format !== 'png' && format !== 'webp') {
+    throw new Error('透明背景只支持 png 或 webp 格式，请同时指定 output_format')
+  }
+}
+
+function setDefaultParams(session: Session, args: Record<string, unknown>): McpReply {
+  if (args.reset === true) {
+    session.params = {}
+    return { text: '已清除本会话的默认参数覆盖，恢复跟随应用当前设置', images: [] }
+  }
   const patch = parseParams(args)
   if (!Object.keys(patch).length) throw new Error('没有要修改的参数')
-  useStore.getState().setParams(patch)
-  return { text: `已更新默认参数：${JSON.stringify(useStore.getState().params, null, 2)}`, images: [] }
+  const next = { ...session.params, ...patch }
+  checkTransparent(next)
+  session.params = next
+  return { text: `已更新本会话的默认参数（不影响应用界面和其他会话）：${JSON.stringify({ ...useStore.getState().params, ...next }, null, 2)}`, images: [] }
 }
 
 async function runTool(request: McpRequest): Promise<McpReply> {
+  const session = getSession(request.session)
   switch (request.tool) {
     case 'generate_image':
-      return generateImage(request.arguments)
+      return generateImage(session, request.arguments)
     case 'list_history':
-      return listHistory(request.arguments)
+      return listHistory(session, request.arguments)
     case 'get_image':
       return getImage(request.arguments)
     case 'get_state':
-      return getState()
+      return getState(session)
     case 'set_active_profile':
-      return setActiveProfile(request.arguments)
+      return setActiveProfile(session, request.arguments)
     case 'set_default_params':
-      return setDefaultParams(request.arguments)
+      return setDefaultParams(session, request.arguments)
     default:
       throw new Error(`未知工具：${request.tool}`)
   }

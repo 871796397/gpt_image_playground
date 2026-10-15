@@ -33,11 +33,12 @@
   },
   {
     "name": "list_history",
-    "description": "列出应用历史记录中最近的任务（提示词、状态、尺寸、图片 id），不产生费用。",
+    "description": "列出本会话生成的最近任务（提示词、状态、尺寸、图片 id），不产生费用。默认只含本会话自己生成的任务，all 为 true 时列出应用的全部历史。",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "description": "默认 10" }
+        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "description": "默认 10" },
+        "all": { "type": "boolean", "description": "为 true 时列出应用里的全部历史，包括用户自己生成的和其他会话生成的" }
       }
     }
   },
@@ -55,24 +56,24 @@
   },
   {
     "name": "get_state",
-    "description": "返回应用中所有 API 配置（名称、供应商、可选模型，标出当前启用的一个）、默认生成参数和自动重试设置，不含密钥。",
+    "description": "返回应用中所有 API 配置（名称、供应商、可选模型，标出本会话当前使用的一个）、本会话生效的默认生成参数、本会话的覆盖项和自动重试设置，不含密钥。",
     "inputSchema": { "type": "object", "properties": {} }
   },
   {
     "name": "set_active_profile",
-    "description": "切换应用当前启用的 API 配置，可同时选择该配置下的模型。会改变应用里用户看到的当前配置，后续生成都使用它；配置名称和 id 见 get_state。",
+    "description": "切换本会话使用的 API 配置，可同时选择该配置下的模型。只对本会话生效，不改应用界面里的配置，也不影响其他会话；reset 为 true 时恢复为跟随应用当前启用的配置。配置名称和 id 见 get_state。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "profile": { "type": "string", "description": "配置的 id 或名称" },
-        "model": { "type": "string", "description": "可选。该配置模型列表中的模型 ID" }
-      },
-      "required": ["profile"]
+        "model": { "type": "string", "description": "可选。该配置模型列表中的模型 ID" },
+        "reset": { "type": "boolean", "description": "为 true 时清除本会话的选择，此时不需要 profile" }
+      }
     }
   },
   {
     "name": "set_default_params",
-    "description": "修改应用里的默认生成参数（即首页参数区的值），generate_image 省略的参数会沿用它们。只修改传入的字段。",
+    "description": "修改本会话的默认生成参数，本会话 generate_image 省略的参数会沿用它们。只修改传入的字段；只对本会话生效，不改应用界面里的参数，也不影响其他会话；reset 为 true 时清除本会话的全部覆盖。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -82,7 +83,8 @@
         "transparent_output": { "type": "boolean", "description": "透明背景，仅 png 或 webp 格式可用，需模型支持" },
         "output_compression": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "jpeg/webp 的压缩质量，null 表示不指定" },
         "moderation": { "type": "string", "enum": ["auto", "low"] },
-        "n": { "type": "integer", "minimum": 1, "maximum": 4 }
+        "n": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "reset": { "type": "boolean", "description": "为 true 时清除本会话的全部覆盖，此时忽略其他字段" }
       }
     }
   }

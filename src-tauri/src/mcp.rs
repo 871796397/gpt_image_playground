@@ -224,6 +224,7 @@ fn handle(app: &AppHandle, token: &str, mut request: Request) {
     let origin = header("Origin");
     let authorization = header("Authorization");
     let accepts_sse = header("Accept").is_some_and(|a| a.contains("text/event-stream"));
+    let session = clean_session_id(header("Mcp-Session-Id"));
     if origin.is_some_and(|origin| !is_local_origin(&origin)) {
         let _ = request.respond(json_response(403, &json!({ "error": "Origin 不被允许" })));
         return;
@@ -267,7 +268,7 @@ fn handle(app: &AppHandle, token: &str, mut request: Request) {
         let (tx, rx) = mpsc::channel();
         let token = params.pointer("/_meta/progressToken").cloned();
         std::thread::spawn(move || {
-            let result = call_tool(&app, &params);
+            let result = call_tool(&app, &params, session.as_deref());
             let _ = tx.send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
         });
         let headers = vec![
@@ -292,10 +293,20 @@ fn handle(app: &AppHandle, token: &str, mut request: Request) {
             let tools: Value = serde_json::from_str(TOOLS).unwrap_or(Value::Null);
             json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools } })
         }
-        "tools/call" => json!({ "jsonrpc": "2.0", "id": id, "result": call_tool(app, &params) }),
+        "tools/call" => json!({ "jsonrpc": "2.0", "id": id, "result": call_tool(app, &params, session.as_deref()) }),
         _ => rpc_error(&id, -32601, "不支持的方法"),
     };
-    let _ = request.respond(json_response(200, &reply));
+    let mut response = json_response(200, &reply);
+    // 初始化时发放会话 id，客户端之后每次请求带回，前端据此给每个 Agent 会话保存各自的参数覆盖
+    if method == "initialize" {
+        response = response.with_header(Header::from_bytes("Mcp-Session-Id", new_token()).unwrap());
+    }
+    let _ = request.respond(response);
+}
+
+/// 客户端带回的会话 id 只接受我们发放的格式（字母数字和连字符，64 位以内），其余当作没有会话
+fn clean_session_id(value: Option<String>) -> Option<String> {
+    value.filter(|id| !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
 }
 
 /// tools/call 的 SSE 响应体：等待最终结果期间每 10 秒产出一条心跳，结果到达后写出消息并结束
@@ -359,7 +370,7 @@ fn tool_error(text: impl Into<String>) -> Value {
 }
 
 /// 把调用转给主窗口并等待结果；工具执行失败按 MCP 约定以 isError 返回，而不是协议错误
-fn call_tool(app: &AppHandle, params: &Value) -> Value {
+fn call_tool(app: &AppHandle, params: &Value, session: Option<&str>) -> Value {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     let mut arguments = arguments;
@@ -374,7 +385,7 @@ fn call_tool(app: &AppHandle, params: &Value) -> Value {
     };
     let (tx, rx) = mpsc::channel();
     mcp.pending.lock().unwrap_or_else(|err| err.into_inner()).insert(id, tx);
-    let sent = app.emit_to("main", "mcp-request", json!({ "id": id, "tool": name, "arguments": arguments }));
+    let sent = app.emit_to("main", "mcp-request", json!({ "id": id, "tool": name, "arguments": arguments, "session": session }));
     let result = match sent {
         Ok(()) => rx
             .recv_timeout(CALL_TIMEOUT)
@@ -544,6 +555,15 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn session_id_only_accepts_issued_format() {
+        assert_eq!(clean_session_id(Some("ab12-CD".into())).as_deref(), Some("ab12-CD"));
+        assert_eq!(clean_session_id(None), None);
+        assert_eq!(clean_session_id(Some(String::new())), None);
+        assert_eq!(clean_session_id(Some("a b".into())), None);
+        assert_eq!(clean_session_id(Some("x".repeat(65))), None);
     }
 
     #[test]
