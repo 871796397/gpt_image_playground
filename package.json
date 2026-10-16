@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "notices": "node scripts/build-notices.mjs"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.0",

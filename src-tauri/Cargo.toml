@@ -2,6 +2,7 @@
 name = "gpt-image-playground"
 version = "0.8.0"
 description = "GPT Image Playground"
+license = "MIT"
 edition = "2021"
 
 [lib]

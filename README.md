@@ -776,7 +776,7 @@ https://cooksleep.github.io/gpt_image_playground?apiUrl={address}&apiKey={key}&m
 
 ## 🔤 字体许可
 
-本项目内置以下两款字体，由 `VITE_BUILTIN_FONT_SOURCE` 决定从公共 CDN 加载还是使用 [`fonts/`](fonts) 目录中的字体文件。完整许可文本位于 [`third-party-licenses/`](third-party-licenses)，也可在应用的“设置 → 关于 → 字体与第三方许可”中查看。
+本项目内置以下两款字体，由 `VITE_BUILTIN_FONT_SOURCE` 决定从公共 CDN 加载还是使用 [`fonts/`](fonts) 目录中的字体文件。完整许可文本位于 [`third-party-licenses/`](third-party-licenses)，也可在应用的“设置 → 关于 → 第三方许可”中查看。
 
 | 字体 | 版权方 | 许可 | 项目地址 | 许可文件 |
 |------|------|------|------|------|
