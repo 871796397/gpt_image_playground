@@ -546,6 +546,8 @@ export interface ExportData {
     source?: 'upload' | 'generated' | 'mask'
     width?: number
     height?: number
+    /** 通过链接添加时的原链接 */
+    sourceUrl?: string
   }>
   /** imageId → 缩略图信息 */
   thumbnailFiles?: Record<string, {

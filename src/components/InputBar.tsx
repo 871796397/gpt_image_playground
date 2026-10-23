@@ -22,8 +22,9 @@ import { downloadImageEntriesAsZip, downloadImageIds, formatExportFileTime, getD
 import { pickSaveDir } from '../lib/saveFile'
 import { isTauri } from '../lib/platform'
 import SizePickerModal from './SizePickerModal'
-import { CloseIcon, CollapseIcon, ExpandIcon, SketchIcon } from './icons'
+import { CloseIcon, CollapseIcon, ExpandIcon, LinkIcon, SketchIcon } from './icons'
 import { CommentBadge } from './CommentMarks'
+import AddImageUrlsModal from './input/addImageUrlsModal'
 import ButtonTooltip from './input/buttonTooltip'
 import DragUploadOverlay from './input/dragUploadOverlay'
 import InputBatchBars from './input/inputBatchBars'
@@ -349,6 +350,7 @@ export default function InputBar() {
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showUploadMenu, setShowUploadMenu] = useState(false)
+  const [showAddImageUrls, setShowAddImageUrls] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
@@ -1618,6 +1620,16 @@ export default function InputBar() {
             className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
             onClick={() => {
               setShowUploadMenu(false)
+              setShowAddImageUrls(true)
+            }}
+          >
+            <LinkIcon className="w-4 h-4" />
+            添加链接
+          </button>
+          <button
+            className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+            onClick={() => {
+              setShowUploadMenu(false)
               setSketchBoard({ baseImageSrc: null })
             }}
           >
@@ -1730,6 +1742,8 @@ export default function InputBar() {
   return (
     <>
       <DragUploadOverlay visible={isDragging} atImageLimit={atImageLimit} maxImages={MAX_INPUT_IMAGES} />
+
+      {showAddImageUrls && <AddImageUrlsModal onClose={() => setShowAddImageUrls(false)} />}
 
       {showSizePicker && (
         <SizePickerModal

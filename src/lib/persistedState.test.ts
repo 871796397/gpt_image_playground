@@ -43,6 +43,7 @@ function source(settings: AppSettings = DEFAULT_SETTINGS) {
     supportPromptDismissed: false,
     supportPromptOpen: false,
     supportPromptSkippedForImportedData: false,
+    imageSourceUrls: {},
   }
 }
 
@@ -90,6 +91,15 @@ describe('persisted state codec', () => {
     const result = normalizePersistedState({ params: { ...DEFAULT_PARAMS, quality } }, fallback(), 100)!
 
     expect(result.state.params.quality).toBe(quality)
+  })
+
+  it('keeps only http(s) reference image source URLs', () => {
+    const result = normalizePersistedState({
+      imageSourceUrls: { a: 'https://example.com/a.png', b: 'data:image/png;base64,AA', c: 1 },
+    }, fallback(), 100)!
+
+    expect(result.state.imageSourceUrls).toEqual({ a: 'https://example.com/a.png' })
+    expect(normalizePersistedState({ imageSourceUrls: [] }, fallback(), 100)!.state.imageSourceUrls).toEqual({})
   })
 
   it('rejects non-record unknown data and falls back field-by-field for an invalid record', () => {
