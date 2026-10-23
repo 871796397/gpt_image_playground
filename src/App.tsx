@@ -25,6 +25,7 @@ import Toast from './components/Toast'
 import DbBlockedNotice from './components/DbBlockedNotice'
 import MaskEditorModal from './components/MaskEditorModal'
 import SketchBoardModal from './components/SketchBoardModal'
+import TitleBar from './components/TitleBar'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import AnnouncementModal from './components/AnnouncementModal'
@@ -32,7 +33,7 @@ import { FavoriteCollectionPickerModal, FavoriteCollectionsView, ManageCollectio
 import { showStartupNotices, type NoticeSection } from './components/startupNotice'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 import { takeDataDirNotice } from './lib/dbTauri'
-import { isTauri } from './lib/platform'
+import { isTauri, TITLEBAR_HEIGHT } from './lib/platform'
 import { setSaveToDefaultDir } from './lib/saveFile'
 import { setTauriLogEnabled } from './lib/tauriLog'
 import { getTauriStorageLoadError } from './lib/tauriStorage'
@@ -224,6 +225,7 @@ export default function App() {
       <MaskEditorModal />
       <SketchBoardModal />
       <ImageContextMenu />
+      {TITLEBAR_HEIGHT > 0 && <TitleBar />}
     </>
   )
 }

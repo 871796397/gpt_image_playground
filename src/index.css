@@ -106,6 +106,14 @@ input[type="number"] {
   ::-webkit-scrollbar-thumb:hover { background: #52525b; }
 }
 
+/* 客户端窗口的滚动条让出标题栏：设了 scrollbar-width 或 scrollbar-color 时 Chromium 不认 ::-webkit-scrollbar-*，轨道留不出上边距 */
+:root[data-titlebar] {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+:root[data-titlebar]::-webkit-scrollbar-track { margin-top: var(--safe-area-top); }
+
 @keyframes pulse-border {
   0%, 100% { border-color: #3b82f6; }
   50% { border-color: #93c5fd; }
