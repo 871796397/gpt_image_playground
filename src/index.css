@@ -44,11 +44,6 @@ select,
   -webkit-touch-callout: default;
 }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
-}
-
 img {
   -webkit-user-drag: none;
   user-select: none;
@@ -80,16 +75,7 @@ body.drag-selecting * {
     --sidebar: 240 5% 12%;
     --sidebar-foreground: 0 0% 98%;
   }
-
-  * {
-    scrollbar-color: #3f3f46 transparent;
-  }
 }
-
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-::-webkit-scrollbar-track { background: transparent; }
 
 /* 隐藏 number input 的增减按?*/
 input[type="number"]::-webkit-inner-spin-button,
@@ -101,18 +87,36 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-@media (prefers-color-scheme: dark) {
+/* 细滚动条只用于鼠标：触摸屏用系统的悬浮滚动条，不占宽度、不滚动时隐藏。
+   Chromium 中不设 scrollbar-width / scrollbar-color：设了之后不认 ::-webkit-scrollbar-*，改画带箭头的系统滚动条 */
+@media (pointer: fine) {
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* 客户端窗口的滚动条让出标题栏 */
+  :root[data-titlebar]::-webkit-scrollbar-track { margin-top: var(--safe-area-top); }
+}
+
+@media (pointer: fine) and (prefers-color-scheme: dark) {
   ::-webkit-scrollbar-thumb { background: #3f3f46; }
   ::-webkit-scrollbar-thumb:hover { background: #52525b; }
 }
 
-/* 客户端窗口的滚动条让出标题栏：设了 scrollbar-width 或 scrollbar-color 时 Chromium 不认 ::-webkit-scrollbar-*，轨道留不出上边距 */
-:root[data-titlebar] {
-  scrollbar-width: auto;
-  scrollbar-color: auto;
-}
+/* Firefox 不支持 ::-webkit-scrollbar-*，只能用标准属性画细滚动条 */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
 
-:root[data-titlebar]::-webkit-scrollbar-track { margin-top: var(--safe-area-top); }
+  @media (prefers-color-scheme: dark) {
+    * {
+      scrollbar-color: #3f3f46 transparent;
+    }
+  }
+}
 
 @keyframes pulse-border {
   0%, 100% { border-color: #3b82f6; }

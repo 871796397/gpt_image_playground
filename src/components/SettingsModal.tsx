@@ -1235,7 +1235,7 @@ export default function SettingsModal() {
             <div
               ref={tabScrollRef}
               onScroll={(e) => { tabScrollTopsRef.current[activeTab] = e.currentTarget.scrollTop }}
-              className="flex-1 overflow-y-auto overscroll-contain custom-scrollbar p-5 sm:p-6"
+              className="flex-1 overflow-y-auto overscroll-contain custom-scrollbar p-5 [scrollbar-gutter:stable_both-edges] sm:p-6"
             >
             {activeTab === 'general' && (
               <GeneralSettingsTab
