@@ -6,6 +6,7 @@ import { getCustomProviderConfigUrl, hasEmbeddedDefaultConfig, loadCustomProvide
 import { getDefaultPresetProfileId, getPresetProfileIds, isPresetConfigOnlyEnabled, setPresetConfig } from './lib/presetConfig'
 import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
 import { useAppFonts } from './hooks/useAppFonts'
+import { useColorMode } from './hooks/useColorMode'
 import { useCloseConfirm } from './hooks/useCloseConfirm'
 import { promptImportLink, useImportLinks } from './hooks/useImportLinks'
 import { useAutoUpdateCheck } from './hooks/useReleaseUpdates'
@@ -53,6 +54,7 @@ export default function App() {
   const [startupImportDone, setStartupImportDone] = useState(false)
   useDockerApiUrlMigrationNotice()
   useAppFonts()
+  useColorMode()
   useGlobalClickSuppression()
   useCloseConfirm()
   useSaveLocationPrompt()

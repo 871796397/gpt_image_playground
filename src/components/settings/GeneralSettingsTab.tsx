@@ -7,7 +7,6 @@ import { getDefaultSaveDir, openDefaultSaveDir } from '../../lib/saveFile'
 import { openTauriLogDir } from '../../lib/tauriLog'
 import { useStore } from '../../store'
 import Select from '../Select'
-import FontSettingField from './FontSettingField'
 import ProxySettingsSection from './ProxySettingsSection'
 import ShortcutRecorder from './ShortcutRecorder'
 import { changeSaveDirWithMigration } from './saveDirMigration'
@@ -68,25 +67,6 @@ export default function GeneralSettingsTab({
 
   return (
     <div className="space-y-8">
-      <section className="space-y-4">
-        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">外观</h4>
-        <FontSettingField
-          slot="ui"
-          label="界面字体"
-          description="内置字体为 HarmonyOS Sans SC；选择“系统字体”时使用系统默认的字体。"
-          mode={draft.uiFont}
-          name={draft.uiFontName}
-          onChange={(mode, name) => commitSettings({ ...draft, uiFont: mode, uiFontName: name })}
-        />
-        <FontSettingField
-          slot="mono"
-          label="代码字体"
-          description="内置字体为 Maple Mono NF CN，用于代码块。"
-          mode={draft.monoFont}
-          name={draft.monoFontName}
-          onChange={(mode, name) => commitSettings({ ...draft, monoFont: mode, monoFontName: name })}
-        />
-      </section>
       <section className="space-y-4">
         <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">输入</h4>
         <div className="hidden sm:block">

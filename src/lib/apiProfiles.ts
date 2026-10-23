@@ -744,6 +744,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     writeLogFile: typeof record.writeLogFile === 'boolean' ? record.writeLogFile : true,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
     privacyModeShortcut: normalizeShortcutSetting(record.privacyModeShortcut, DEFAULT_PRIVACY_MODE_SHORTCUT),
+    colorMode: record.colorMode === 'light' || record.colorMode === 'dark' ? record.colorMode : 'system',
     uiFont: normalizeFontMode(record.uiFont),
     uiFontName: typeof record.uiFontName === 'string' ? record.uiFontName.trim() : '',
     monoFont: normalizeFontMode(record.monoFont),
