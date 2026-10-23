@@ -93,8 +93,8 @@ input[type="number"] {
   ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   ::-webkit-scrollbar-track { background: transparent; }
 
-  /* 客户端窗口的滚动条让出标题栏 */
-  :root[data-titlebar]::-webkit-scrollbar-track { margin-top: var(--safe-area-top); }
+  /* 窗口的滚动条不伸进顶栏（含客户端的标题栏）；顶栏高度由 Header.tsx 写入 */
+  :root::-webkit-scrollbar-track { margin-top: var(--header-height, var(--safe-area-top)); }
 }
 
 @media (pointer: fine) {

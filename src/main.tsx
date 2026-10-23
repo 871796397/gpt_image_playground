@@ -16,7 +16,6 @@ if (isTauri) {
   installTauriLog()
   installExternalLinkHandler()
   installBrowserBehaviorGuards()
-  document.documentElement.dataset.titlebar = ''
   document.documentElement.style.setProperty('--safe-area-top', `${TITLEBAR_HEIGHT}px`)
   // 预先读取代理设置，打开设置时不必等待；失败时由设置页重新读取并显示原因
   void getProxySetting().catch((err) => console.warn('预读代理设置失败：', err))
