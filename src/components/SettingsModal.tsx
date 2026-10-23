@@ -4,6 +4,7 @@ import { readText } from '@tauri-apps/plugin-clipboard-manager'
 import { normalizeBaseUrl } from '../lib/api'
 import { customProviderSupportsNativeTransparentBackground } from '../lib/customProviderCapabilities'
 import { hasActiveDataOperations, trackDataTransfer } from '../lib/dataOperations'
+import { useSettingsDataTransfer } from '../lib/dataProgress'
 import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from '../lib/devProxy'
 import { isTauri } from '../lib/platform'
 import { useStore, exportData, importData, clearData, type SettingsTab } from '../store'
@@ -210,8 +211,9 @@ export default function SettingsModal() {
   const [importTasks, setImportTasks] = useState(true)
   const [clearConfig, setClearConfig] = useState(true)
   const [clearTasks, setClearTasks] = useState(true)
-  const [isExportingData, setIsExportingData] = useState(false)
-  const [isImportingData, setIsImportingData] = useState(false)
+  const dataTransferMode = useSettingsDataTransfer((s) => s.mode)
+  const isExportingData = dataTransferMode === 'export'
+  const isImportingData = dataTransferMode === 'import'
   const [isImportingJson, setIsImportingJson] = useState(false)
   const [draggedProfileId, setDraggedProfileId] = useState<string | null>(null)
   const [dragOverProfileId, setDragOverProfileId] = useState<string | null>(null)
@@ -642,7 +644,6 @@ export default function SettingsModal() {
     }
   }
 
-  const dataTransferMode = isExportingData ? 'export' : isImportingData ? 'import' : null
   const showDataTransferBusyToast = () => {
     const now = Date.now()
     if (now - dataTransferToastAtRef.current < 1000) return
@@ -688,11 +689,11 @@ export default function SettingsModal() {
       showToast('有任务正在进行，完成或停止后再导出', 'error')
       return
     }
-    setIsExportingData(true)
+    useSettingsDataTransfer.setState({ mode: 'export' })
     try {
       await trackDataTransfer(() => exportData({ exportConfig, exportTasks }))
     } finally {
-      setIsExportingData(false)
+      useSettingsDataTransfer.setState({ mode: null })
     }
   }
 
@@ -704,7 +705,7 @@ export default function SettingsModal() {
         e.target.value = ''
         return
       }
-      setIsImportingData(true)
+      useSettingsDataTransfer.setState({ mode: 'import' })
       try {
         const imported = await trackDataTransfer(() => importData(files, { importConfig: presetConfigOnly ? false : importConfig, importTasks }))
         if (imported) {
@@ -714,7 +715,7 @@ export default function SettingsModal() {
           setShowProfileMenu(false)
         }
       } finally {
-        setIsImportingData(false)
+        useSettingsDataTransfer.setState({ mode: null })
       }
     }
     e.target.value = ''

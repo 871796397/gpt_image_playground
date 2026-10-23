@@ -162,6 +162,8 @@ export interface AppSettings {
   /** 仅客户端：把警告和错误写入日志文件 */
   writeLogFile: boolean
   enterSubmit: boolean
+  /** 切换隐私模式的快捷键，如 Ctrl+Shift+H；空字符串表示禁用 */
+  privacyModeShortcut: string
   uiFont: FontMode
   /** uiFont 为 custom 时使用的本机字体名称 */
   uiFontName: string

@@ -10,6 +10,7 @@ import { useCloseConfirm } from './hooks/useCloseConfirm'
 import { promptImportLink, useImportLinks } from './hooks/useImportLinks'
 import { useAutoUpdateCheck } from './hooks/useReleaseUpdates'
 import { useSaveLocationPrompt } from './hooks/useSaveLocationPrompt'
+import { usePrivacyModeShortcut } from './hooks/usePrivacyMode'
 import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
@@ -47,6 +48,8 @@ export default function App() {
   const writeLogFile = useStore((s) => s.settings.writeLogFile)
   const saveLocationMode = useStore((s) => s.settings.saveLocationMode)
   const autoCheckUpdate = useStore((s) => s.settings.autoCheckUpdate)
+  const privacyModeEpoch = useStore((s) => s.privacyModeEpoch)
+  const settingsModalEpoch = useStore((s) => s.settingsModalEpoch)
   const [startupImportDone, setStartupImportDone] = useState(false)
   useDockerApiUrlMigrationNotice()
   useAppFonts()
@@ -54,6 +57,7 @@ export default function App() {
   useCloseConfirm()
   useSaveLocationPrompt()
   useAutoUpdateCheck(autoCheckUpdate)
+  usePrivacyModeShortcut()
   // 运行中的链接导入要等启动时的预置配置写入完，否则会被启动流程覆盖
   useImportLinks(startupImportDone)
 
@@ -195,6 +199,7 @@ export default function App() {
     return () => document.removeEventListener('dragstart', preventPageImageDrag)
   }, [])
 
+  // 进入隐私模式时重新挂载带有内部弹窗或菜单的组件，直接丢弃其中未保存的内容
   return (
     <>
       <Header />
@@ -208,10 +213,10 @@ export default function App() {
           </div>
         </main>
       )}
-      <InputBar />
-      <DetailModal />
-      <Lightbox />
-      <SettingsModal />
+      <InputBar key={`input-${privacyModeEpoch}`} />
+      <DetailModal key={`detail-${privacyModeEpoch}`} />
+      <Lightbox key={`lightbox-${privacyModeEpoch}`} />
+      <SettingsModal key={`settings-${settingsModalEpoch}`} />
       <UpdateModal />
       <DataProgressDialog />
       <ConfirmDialog />
@@ -222,9 +227,9 @@ export default function App() {
       <ManageCollectionsModal />
       <Toast />
       <DbBlockedNotice />
-      <MaskEditorModal />
-      <SketchBoardModal />
-      <ImageContextMenu />
+      <MaskEditorModal key={`mask-${privacyModeEpoch}`} />
+      <SketchBoardModal key={`sketch-${privacyModeEpoch}`} />
+      <ImageContextMenu key={`menu-${privacyModeEpoch}`} />
       {TITLEBAR_HEIGHT > 0 && <TitleBar />}
     </>
   )

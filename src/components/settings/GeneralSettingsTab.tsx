@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AppSettings } from '../../types'
 import { markSaveLocationAsked } from '../../hooks/useSaveLocationPrompt'
+import { DEFAULT_PRIVACY_MODE_SHORTCUT } from '../../lib/keyboardShortcut'
 import { isTauri } from '../../lib/platform'
 import { getDefaultSaveDir, openDefaultSaveDir } from '../../lib/saveFile'
 import { openTauriLogDir } from '../../lib/tauriLog'
@@ -8,6 +9,7 @@ import { useStore } from '../../store'
 import Select from '../Select'
 import FontSettingField from './FontSettingField'
 import ProxySettingsSection from './ProxySettingsSection'
+import ShortcutRecorder from './ShortcutRecorder'
 import { changeSaveDirWithMigration } from './saveDirMigration'
 
 interface GeneralSettingsTabProps {
@@ -362,6 +364,22 @@ export default function GeneralSettingsTab({
             {isTauri
               ? '开启后，画廊模式图像生成和 Agent 模式回复结束时（无论成功或失败）都会发送系统通知。如果没有收到通知，请检查 Windows 设置中本应用的通知开关。'
               : '开启后，画廊模式图像生成和 Agent 模式回复结束时（无论成功或失败）都会发送浏览器系统通知。浏览器可能会请求通知权限或默认拒绝，请查看相关提示。'}
+          </div>
+        </div>
+      </section>
+      <section className="space-y-4">
+        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">隐私</h4>
+        <div className="block">
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <span className="block text-sm text-gray-600 dark:text-gray-300">隐私模式快捷键</span>
+            <ShortcutRecorder
+              value={draft.privacyModeShortcut}
+              defaultValue={DEFAULT_PRIVACY_MODE_SHORTCUT}
+              onChange={(value) => commitSettings({ ...draft, privacyModeShortcut: value })}
+            />
+          </div>
+          <div data-selectable-text className="text-xs text-gray-500 dark:text-gray-500">
+            按下后关闭所有弹窗，隐藏历史记录、收藏夹和输入框内容，之前任务的通知不再提示；再按一次恢复。点击按钮后按下新组合即可修改。
           </div>
         </div>
       </section>

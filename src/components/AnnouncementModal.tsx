@@ -12,9 +12,9 @@ export default function AnnouncementModal({ ready }: { ready: boolean }) {
   const { pending, dismiss } = useAnnouncements(ready)
   const announcement = pending[0]
   const scrollRef = useRef<HTMLDivElement>(null)
-  // 启动时可能同时出现导入确认、存储错误等弹窗，公告让位于其他弹窗，关闭后再显示
+  // 启动时可能同时出现导入确认、存储错误等弹窗，公告让位于其他弹窗，关闭后再显示；隐私模式中暂不显示，不记为已读
   const blocked = useStore((s) => Boolean(
-    s.confirmDialog || s.supportPromptOpen || s.showSettings || s.detailTaskId || s.lightboxImageId || s.maskEditorImageId || s.sketchBoard
+    s.privacyMode || s.confirmDialog || s.supportPromptOpen || s.showSettings || s.detailTaskId || s.lightboxImageId || s.maskEditorImageId || s.sketchBoard
     || s.isManageCollectionsModalOpen || s.favoritePickerTaskIds,
   ))
   const updateModalOpen = useReleaseUpdates((s) => s.modalOpen)

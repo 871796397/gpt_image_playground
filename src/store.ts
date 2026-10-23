@@ -67,7 +67,7 @@ import { hasActiveDataOperations, isCustomRecoverableTask, isFalRecoverableTask 
 import { formatExportFileTime } from './lib/exportFileName'
 import { buildExportZip, createExportBlob, getExportZipPlan, MAX_EXPORT_ZIP_BYTES, readExportZip, readExportZipFileAsDataUrl, readExportZipManifest } from './lib/exportZip'
 import { getExportImageSizes, readExportImages } from './lib/exportImages'
-import { deleteAgentRoundFromConversation, getActiveAgentRounds, getAgentRoundPath, normalizeAgentConversations, remapAgentRoundMentionsForPathChange, uniqueIds } from './lib/agentConversationState'
+import { deleteAgentRoundFromConversation, getActiveAgentRounds, getAgentRoundPath, isEmptyAgentConversation, normalizeAgentConversations, remapAgentRoundMentionsForPathChange, uniqueIds } from './lib/agentConversationState'
 import { canonicalizeBatchFunctionCallArguments, countResponseToolCalls, createReadyAgentRecoveredToolState, getAgentFunctionOutputCallIds, getAgentRecoveredFailureError, getAgentRecoveredToolCallCount, getPersistableAgentConversations, getPersistableRawResponsePayload, mergeResponseOutputItems, scrubResponseOutputForDeletedAgentTasks, scrubTaskRawResponsePayloadForDeletedTasks } from './lib/agentResponseState'
 import { cleanStaleAgentInputDrafts, clearInputDraftState, isEmptyAgentInputDraft, normalizeAgentInputDrafts, remapAgentInputDraftMentionsForPathChange, restoreAgentInputDraftState, restoreGalleryInputDraftState, saveActiveAgentInputDrafts, saveGalleryInputDraft, syncActiveInputDraft, updateInputDraftImages } from './lib/inputDraftState'
 import { ALL_FAVORITES_COLLECTION_ID, DEFAULT_FAVORITE_COLLECTION_ID, createDefaultFavoriteCollection, deleteFavoriteCollectionState, ensureDefaultFavoriteCollection, getTaskFavoriteCollectionIds, mergeFavoriteCollections, normalizeFavoriteCollectionIds, normalizeFavoriteCollectionName, normalizeFavoriteCollections, normalizeFavoritePatch, normalizeLoadedFavoriteState, resolveDefaultFavoriteCollectionId, sameFavoriteCollectionIds } from './lib/favoriteState'
@@ -76,9 +76,10 @@ import { addImageSizeParam, createTaskDonePatch, createTaskErrorPatch, deriveAge
 import { stripInjectedCodexCliSizePrompt } from './lib/size'
 import { apiFetch, FetchConnectError, isTauri } from './lib/platform'
 import { pickSaveDir, saveFile, saveFileToDir, type SaveOptions } from './lib/saveFile'
-import { endDataProgress, setDataProgressCancelable, startDataProgress, updateDataProgress } from './lib/dataProgress'
+import { endDataProgress, setDataProgressCancelable, startDataProgress, updateDataProgress, useSettingsDataTransfer } from './lib/dataProgress'
 import { throwIfAborted } from './lib/serverSentEvents'
 import { tauriStorage } from './lib/tauriStorage'
+import { createPrivacyModeState, getPrivacySnapshotImageIds, isPrivacyHiddenConversation, isPrivacyHiddenTask, restorePrivacyInputState, type PrivacyModeState } from './lib/privacyMode'
 
 const FAL_RECOVERY_POLL_MS = 10_000
 const CUSTOM_RECOVERY_POLL_MS = 10_000
@@ -163,9 +164,18 @@ function showTaskCompletionNotification(title: string, body: string, tag = 'task
   showBrowserNotification(title, { body, tag })
 }
 
+// 隐私模式中丢弃进入前已开始的任务和对话的提示与通知，退出后也不补发
+function isTaskHiddenByPrivacyMode(task: TaskRecord) {
+  return isPrivacyHiddenTask(useStore.getState().privacyMode, task)
+}
+
+function isConversationHiddenByPrivacyMode(conversationId: string) {
+  return Boolean(useStore.getState().privacyMode?.hiddenConversationIds.has(conversationId))
+}
+
 function showTaskFailureNotification(task: TaskRecord) {
   // Agent 任务由所在回合统一通知，批量任务在整批结束时汇总失败数量
-  if (isAgentTask(task) || batchTaskIds.has(task.id)) return
+  if (isAgentTask(task) || batchTaskIds.has(task.id) || isTaskHiddenByPrivacyMode(task)) return
   showTaskCompletionNotification('图像生成失败', '请回到应用查看详情。', 'task-failure')
 }
 
@@ -249,10 +259,6 @@ function createAgentConversationTitle(prompt: string, fallbackTitle: string) {
   return `${chars.slice(0, AGENT_CONVERSATION_TITLE_MAX_LENGTH - 3).join('')}...`
 }
 
-function isEmptyAgentConversation(conversation: AgentConversation) {
-  return conversation.rounds.length === 0 && conversation.messages.length === 0 && !conversation.activeRoundId
-}
-
 function getLatestAgentConversation(conversations: AgentConversation[]) {
   return conversations.reduce<AgentConversation | null>((latest, conversation) => {
     if (!latest) return conversation
@@ -262,7 +268,9 @@ function getLatestAgentConversation(conversations: AgentConversation[]) {
 }
 
 export function getPersistedState(state: AppState) {
-  return createPersistedState(state, agentConversationMigrationPending && !agentConversationPersistenceReady)
+  // 隐私模式中输入框已清空，仍保存进入前的输入，刷新后不丢失
+  const source = state.privacyMode ? { ...state, ...state.privacyMode.inputSnapshot } : state
+  return createPersistedState(source, agentConversationMigrationPending && !agentConversationPersistenceReady)
 }
 
 async function replaceStoredAgentConversations(conversations: AgentConversation[]) {
@@ -464,12 +472,21 @@ interface AppState {
     cancelAction?: (checkboxChecked?: boolean) => void
   } | null
   setConfirmDialog: (d: AppState['confirmDialog']) => void
+
+  // 隐私模式：不持久化，刷新页面后自然退出
+  privacyMode: PrivacyModeState | null
+  /** 每次进入隐私模式时递增，作为弹窗组件的 key，丢弃组件内部打开的弹窗和未保存内容 */
+  privacyModeEpoch: number
+  /** 设置弹窗的 key；导入导出中进入隐私模式时不变，保留进行中的传输状态 */
+  settingsModalEpoch: number
+  togglePrivacyMode: () => void
 }
 
 function isImageReferencedByState(state: AppState, imageId: string) {
   if (state.inputImages.some((img) => img.id === imageId)) return true
   if (state.galleryInputDraft?.inputImages.some((img) => img.id === imageId)) return true
   if (Object.values(state.agentInputDrafts).some((draft) => draft.inputImages.some((img) => img.id === imageId))) return true
+  if (getPrivacySnapshotImageIds(state.privacyMode).includes(imageId)) return true
   if (state.tasks.some((task) =>
     task.inputImageIds.includes(imageId) ||
     task.outputImages.includes(imageId) ||
@@ -1067,6 +1084,67 @@ export const useStore = create<AppState>()(
         if (confirmDialog) dismissAllTooltips()
         set({ confirmDialog })
       },
+
+      privacyMode: null,
+      privacyModeEpoch: 0,
+      settingsModalEpoch: 0,
+      togglePrivacyMode: () => {
+        const state = get()
+        if (state.privacyMode) {
+          set({
+            privacyMode: null,
+            ...restorePrivacyInputState(state.privacyMode.inputSnapshot, state),
+          })
+          const stopped = state.privacyMode.stoppedBatchPrompts
+          if (stopped > 0) get().showToast(`进入隐私模式时停止了批量提交，${stopped} 条提示词未提交`, 'info')
+          return
+        }
+
+        const privacyMode = createPrivacyModeState(state, Date.now())
+        // 继续批量会用旧提示词创建新的可见任务；已开始的任务继续执行
+        if (state.batchProgress) endBatch(activeBatchId)
+        dismissAllTooltips()
+        // 导入导出进行中保留设置弹窗和其中的确认框，传输期间的限制与提示照旧，其余照常进入隐私模式
+        const keepSettings = Boolean(useSettingsDataTransfer.getState().mode)
+        const activeConversation = state.agentConversations.find((c) => c.id === state.activeAgentConversationId)
+        set({
+          privacyMode,
+          privacyModeEpoch: state.privacyModeEpoch + 1,
+          appMode: 'gallery',
+          ...clearInputDraftState(),
+          galleryInputDraft: null,
+          agentInputDrafts: {},
+          activeAgentConversationId: activeConversation && !isPrivacyHiddenConversation(privacyMode, activeConversation) ? activeConversation.id : null,
+          reusedTaskApiProfileId: null,
+          reusedTaskApiProfileName: null,
+          reusedTaskApiProfileMissing: false,
+          reusedTaskApiModel: null,
+          agentMobileHeaderVisible: true,
+          agentEditingRoundId: null,
+          agentEditingConversationId: null,
+          searchQuery: '',
+          filterStatus: 'all',
+          filterFavorite: false,
+          activeFavoriteCollectionId: null,
+          selectedTaskIds: [],
+          selectedFavoriteCollectionIds: [],
+          // 直接关闭，不经过各弹窗的关闭流程，不保存草稿也不弹出确认
+          ...(keepSettings ? {} : {
+            showSettings: false,
+            settingsTabRequest: null,
+            confirmDialog: null,
+            settingsModalEpoch: state.settingsModalEpoch + 1,
+          }),
+          detailTaskId: null,
+          lightboxImageId: null,
+          lightboxImageList: [],
+          lightboxCommentPrompt: null,
+          sketchBoard: null,
+          favoritePickerTaskIds: null,
+          isManageCollectionsModalOpen: false,
+          toast: null,
+        })
+      },
     }),
     {
       name: 'gpt-image-playground',
@@ -1173,7 +1251,7 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number, profile?
   const timer = setTimeout(() => {
     openAIWatchdogTimers.delete(taskId)
     const failed = failOpenAITaskIfStillRunning(taskId, createOpenAITimeoutError(timeoutSeconds, profile))
-    if (failed) useStore.getState().showToast('OpenAI 任务请求超时', 'error')
+    if (failed && !isTaskHiddenByPrivacyMode(task)) useStore.getState().showToast('OpenAI 任务请求超时', 'error')
   }, remainingMs)
   openAIWatchdogTimers.set(taskId, timer)
 }
@@ -1470,9 +1548,11 @@ async function completeRecoveredFalTask(task: TaskRecord, result: Awaited<Return
     ...createTaskDonePatch(task, Date.now()),
     falRecoverable: false,
   })
-  useStore.getState().showToast(`fal.ai 任务已恢复，共 ${outputIds.length} 张图片`, 'success')
-  if (!isAgentTask(task)) showTaskCompletionNotification('图像生成完成', `fal.ai 任务已恢复，共 ${outputIds.length} 张图片。`)
-  else void continueRecoveredAgentRound(task.id)
+  if (!isTaskHiddenByPrivacyMode(task)) {
+    useStore.getState().showToast(`fal.ai 任务已恢复，共 ${outputIds.length} 张图片`, 'success')
+    if (!isAgentTask(task)) showTaskCompletionNotification('图像生成完成', `fal.ai 任务已恢复，共 ${outputIds.length} 张图片。`)
+  }
+  if (isAgentTask(task)) void continueRecoveredAgentRound(task.id)
 }
 
 async function recoverFalTask(taskId: string) {
@@ -2230,8 +2310,8 @@ async function deleteUnreferencedImageIds(imageIds: Iterable<string>) {
   const candidates = Array.from(new Set(Array.from(imageIds).filter(Boolean)))
   if (candidates.length === 0) return
 
-  const { tasks, inputImages, galleryInputDraft } = useStore.getState()
-  const stillUsed = new Set<string>()
+  const { tasks, inputImages, galleryInputDraft, privacyMode } = useStore.getState()
+  const stillUsed = new Set<string>(getPrivacySnapshotImageIds(privacyMode))
   for (const task of tasks) addTaskReferencedImageIds(stillUsed, task)
   addAgentReferencedImageIds(stillUsed)
   addInputDraftReferencedImageIds(stillUsed, galleryInputDraft)
@@ -2391,7 +2471,7 @@ async function continueRecoveredAgentRound(taskId: string) {
             : currentRound,
         ),
       }))
-      showTaskCompletionNotification('Agent 回复失败', '请回到应用查看详情。', 'task-failure')
+      if (!isConversationHiddenByPrivacyMode(conversation.id)) showTaskCompletionNotification('Agent 回复失败', '请回到应用查看详情。', 'task-failure')
     }
 
     const recovered = createReadyAgentRecoveredToolState(round, latestState.tasks)
@@ -3600,11 +3680,13 @@ async function executeAgentRound(
         : [...current.messages, assistantMessage],
     }))
 
-    useStore.getState().showToast(outputIds.length > 0 ? 'Agent 已生成图片' : 'Agent 已回复', 'success')
-    showTaskCompletionNotification(
-      outputIds.length > 0 ? 'Agent 已生成图片' : 'Agent 已回复',
-      outputIds.length > 0 ? `Agent 回复已结束，共生成 ${outputIds.length} 张图片。` : 'Agent 回复已结束。',
-    )
+    if (!isConversationHiddenByPrivacyMode(conversationId)) {
+      useStore.getState().showToast(outputIds.length > 0 ? 'Agent 已生成图片' : 'Agent 已回复', 'success')
+      showTaskCompletionNotification(
+        outputIds.length > 0 ? 'Agent 已生成图片' : 'Agent 已回复',
+        outputIds.length > 0 ? `Agent 回复已结束，共生成 ${outputIds.length} 张图片。` : 'Agent 回复已结束。',
+      )
+    }
   } catch (err) {
     if (controller.signal.aborted) {
       if (markAgentRoundStopped(conversationId, roundId)) {
@@ -3660,8 +3742,10 @@ async function executeAgentRound(
             ],
       }
     })
-    useStore.getState().showToast(`Agent 请求失败：${message}`, 'error')
-    showTaskCompletionNotification('Agent 回复失败', '请回到应用查看详情。', 'task-failure')
+    if (!isConversationHiddenByPrivacyMode(conversationId)) {
+      useStore.getState().showToast(`Agent 请求失败：${message}`, 'error')
+      showTaskCompletionNotification('Agent 回复失败', '请回到应用查看详情。', 'task-failure')
+    }
   } finally {
     if (agentRoundControllers.get(controllerKey) === controller) {
       agentRoundControllers.delete(controllerKey)
@@ -3832,7 +3916,7 @@ async function executeTask(taskId: string) {
       ? `生成完成：成功 ${outputIds.length} 张，失败 ${failedCount} 张`
       : `生成完成，共 ${outputIds.length} 张图片`
     // 批量任务只在整批结束时统一提示
-    if (!batchTaskIds.has(taskId)) {
+    if (!batchTaskIds.has(taskId) && !isTaskHiddenByPrivacyMode(task)) {
       useStore.getState().showToast(completionMessage, failedCount > 0 ? 'error' : 'success')
       if (!isAgentTask(task)) showTaskCompletionNotification('图像生成完成', `${completionMessage}。`)
     }
@@ -3893,7 +3977,7 @@ async function executeTask(taskId: string) {
         customRecoverable: false,
       })
       // 批量任务不自动打开失败详情，避免连续弹窗打断
-      if (!batchTaskIds.has(taskId)) useStore.getState().setDetailTaskId(taskId)
+      if (!batchTaskIds.has(taskId) && !isTaskHiddenByPrivacyMode(task)) useStore.getState().setDetailTaskId(taskId)
       showTaskFailureNotification(task)
     }
   } finally {
@@ -4496,9 +4580,11 @@ async function completeRecoveredCustomTask(task: TaskRecord, result: Awaited<Ret
     ...createTaskDonePatch(task, Date.now()),
     customRecoverable: false,
   })
-  useStore.getState().showToast(`自定义异步任务已恢复，共 ${outputIds.length} 张图片`, 'success')
-  if (!isAgentTask(task)) showTaskCompletionNotification('图像生成完成', `自定义异步任务已恢复，共 ${outputIds.length} 张图片。`)
-  else void continueRecoveredAgentRound(task.id)
+  if (!isTaskHiddenByPrivacyMode(task)) {
+    useStore.getState().showToast(`自定义异步任务已恢复，共 ${outputIds.length} 张图片`, 'success')
+    if (!isAgentTask(task)) showTaskCompletionNotification('图像生成完成', `自定义异步任务已恢复，共 ${outputIds.length} 张图片。`)
+  }
+  if (isAgentTask(task)) void continueRecoveredAgentRound(task.id)
 }
 
 async function recoverCustomTask(taskId: string) {
