@@ -37,6 +37,11 @@ section('Maple Mono NF CN 字体', [
   '',
   read('third-party-licenses/MapleMono-LICENSE.txt'),
 ].join('\n'))
+section('Lobe Icons（设置中 Claude Code、Codex 的图标）', [
+  '项目地址：https://github.com/lobehub/lobe-icons',
+  '',
+  read('third-party-licenses/LobeIcons-LICENSE.txt'),
+].join('\n'))
 
 // Rust：按许可原文分组，每组列出使用它的包；本项目自己的包（没有 source）不列出
 let about

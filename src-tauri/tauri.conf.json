@@ -62,6 +62,9 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
+    "resources": {
+      "../skills/gpt-image-playground/": "skills/gpt-image-playground/"
+    },
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",

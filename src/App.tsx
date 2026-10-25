@@ -35,6 +35,7 @@ import { FavoriteCollectionPickerModal, FavoriteCollectionsView, ManageCollectio
 import { showStartupNotices, type NoticeSection } from './components/startupNotice'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 import { takeDataDirNotice } from './lib/dbTauri'
+import { installCliBridge } from './lib/cliBridge'
 import { isTauri, TITLEBAR_HEIGHT } from './lib/platform'
 import { setSaveToDefaultDir } from './lib/saveFile'
 import { setTauriLogEnabled } from './lib/tauriLog'
@@ -62,6 +63,10 @@ export default function App() {
   usePrivacyModeShortcut()
   // 运行中的链接导入要等启动时的预置配置写入完，否则会被启动流程覆盖
   useImportLinks(startupImportDone)
+
+  useEffect(() => {
+    if (isTauri) return installCliBridge()
+  }, [])
 
   useEffect(() => {
     if (!isTauri) return
