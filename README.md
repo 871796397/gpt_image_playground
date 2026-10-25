@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🎨 GPT Image Playground
+<img src="public/pwa-icon.svg" alt="GPT Image Playground" width="128" height="128">
+
+# GPT Image Playground
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/CookSleep/gpt_image_playground?style=flat-square&color=eab308)](https://github.com/CookSleep/gpt_image_playground/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/CookSleep/gpt_image_playground?style=flat-square&color=3b82f6)](https://github.com/CookSleep/gpt_image_playground/network/members)
@@ -117,7 +119,7 @@
 ## ✨ 核心特性
 
 ### 🎨 强大的图像生成与编辑
-- **参考图与遮罩**：最多 16 张参考图（支持剪贴板和拖拽），内置遮罩编辑器，自动预处理以符合官方分辨率限制。
+- **参考图与遮罩**：最多 16 张参考图（支持剪贴板、拖拽和图片链接），内置遮罩编辑器，自动预处理以符合官方分辨率限制。
 - **画板标注**：在空白画布或参考图上用画笔、文字、图形和像素橡皮擦标注修改意图，完成后作为参考图；画板与遮罩编辑器可缩放平移（Alt / Ctrl + 滚轮、Alt + 拖动、双指捏合）。
 - **评论标注**：在画板中用评论工具点击图片添加评论，以“@图N 评论”插入提示词，发送时附上评论在图中的位置（如 `(X=52%, Y=41%)`），复用任务时可恢复。
 - **批量与迭代**：支持单次多图生成；一键将满意结果转为参考图，无缝开启下一轮修改。
@@ -156,7 +158,8 @@
 - **Codex CLI 兼容模式**：上游为 Codex CLI 时，按其实际支持的参数发送请求，并把多图生成拆成并发单图。
 - **提示词防改写**：Responses API 始终在请求前加入防改写指令；开启 Codex CLI 模式后，Images API 也会加入。
 - **智能诊断提示**：检测到接口异常改写或缺少常规参数时，提示开启相应的兼容模式。
-- **习惯配置**：提交后清空输入、重启后保留输入、临时复用历史任务的 API 配置、重试方式、关闭提示词防改写、界面字体、系统通知、自动检查更新等。
+- **外观配置**：颜色模式（跟随系统、浅色、深色）、界面字体与代码字体。
+- **习惯配置**：提交后清空输入、重启后保留输入、临时复用历史任务的 API 配置、重试方式、关闭提示词防改写、系统通知、自动检查更新、隐私模式快捷键等。
 - **版本更新**：启动时检查新版本并展示更新说明；客户端可直接下载并安装更新。
 
 ---
@@ -776,7 +779,7 @@ https://cooksleep.github.io/gpt_image_playground?apiUrl={address}&apiKey={key}&m
 
 ## 🔤 字体许可
 
-本项目内置以下两款字体，由 `VITE_BUILTIN_FONT_SOURCE` 决定从公共 CDN 加载还是使用 [`fonts/`](fonts) 目录中的字体文件。完整许可文本位于 [`third-party-licenses/`](third-party-licenses)，也可在应用的“设置 → 关于 → 字体与第三方许可”中查看。
+本项目内置以下两款字体，由 `VITE_BUILTIN_FONT_SOURCE` 决定从公共 CDN 加载还是使用 [`fonts/`](fonts) 目录中的字体文件。完整许可文本位于 [`third-party-licenses/`](third-party-licenses)，也可在应用的“设置 → 关于 → 第三方许可”中查看。
 
 | 字体 | 版权方 | 许可 | 项目地址 | 许可文件 |
 |------|------|------|------|------|

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { clearFailedTasks, useStore, taskMatchesFilterStatus, taskMatchesSearchQuery } from '../store'
 import { ALL_FAVORITES_COLLECTION_ID, getTaskFavoriteCollectionIds } from '../lib/favoriteState'
+import { isPrivacyHiddenTask } from '../lib/privacyMode'
 import { useTooltip } from '../hooks/useTooltip'
 import Select from './Select'
 import { ChevronLeftIcon, CollectionManageIcon, FavoriteIcon, TrashIcon } from './icons'
@@ -59,7 +60,7 @@ export default function SearchBar() {
   const failedCount = useStore((s) => {
     const q = s.searchQuery.trim().toLowerCase()
     return s.tasks.filter((task) => {
-      if (!taskMatchesFilterStatus(task, 'error')) return false
+      if (!taskMatchesFilterStatus(task, 'error') || isPrivacyHiddenTask(s.privacyMode, task)) return false
       if (s.filterFavorite) {
         if (!task.isFavorite) return false
         if (s.activeFavoriteCollectionId && s.activeFavoriteCollectionId !== ALL_FAVORITES_COLLECTION_ID && !getTaskFavoriteCollectionIds(task, s.defaultFavoriteCollectionId).includes(s.activeFavoriteCollectionId)) return false
@@ -68,6 +69,7 @@ export default function SearchBar() {
     }).length
   })
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const privacyMode = useStore((s) => Boolean(s.privacyMode))
   const inCollectionOverview = filterFavorite && !activeFavoriteCollectionId
   const isFailedFilter = filterStatus === 'error'
   const favoriteTooltip = activeFavoriteCollectionId ? '返回收藏夹' : filterFavorite ? '退出收藏夹' : '收藏夹'
@@ -102,7 +104,7 @@ export default function SearchBar() {
     const q = state.searchQuery.trim().toLowerCase()
     const failedTaskIds = state.tasks
       .filter((task) => {
-        if (!taskMatchesFilterStatus(task, 'error')) return false
+        if (!taskMatchesFilterStatus(task, 'error') || isPrivacyHiddenTask(state.privacyMode, task)) return false
         if (state.filterFavorite) {
           if (!task.isFavorite) return false
           if (state.activeFavoriteCollectionId && state.activeFavoriteCollectionId !== ALL_FAVORITES_COLLECTION_ID && !getTaskFavoriteCollectionIds(task, state.defaultFavoriteCollectionId).includes(state.activeFavoriteCollectionId)) return false
@@ -132,17 +134,19 @@ export default function SearchBar() {
   return (
     <div ref={rootRef} data-no-drag-select className="mt-6 mb-4 flex gap-3">
       <div className="flex gap-2 flex-shrink-0 z-20">
-        <SearchActionButton
-          tooltip={favoriteTooltip}
-          onClick={handleFavoriteClick}
-          className={`p-2.5 rounded-xl border transition-all ${
-            filterFavorite
-              ? 'border-transparent bg-yellow-400/[0.15] dark:bg-yellow-500/[0.15] text-yellow-500'
-              : 'border-transparent bg-black/[0.04] dark:bg-white/[0.06] text-gray-400 hover:bg-black/[0.07] dark:hover:bg-white/[0.1]'
-          }`}
-        >
-          {activeFavoriteCollectionId ? <ChevronLeftIcon className="w-5 h-5" /> : <FavoriteIcon filled={filterFavorite} className="w-5 h-5" />}
-        </SearchActionButton>
+        {!privacyMode && (
+          <SearchActionButton
+            tooltip={favoriteTooltip}
+            onClick={handleFavoriteClick}
+            className={`p-2.5 rounded-xl border transition-all ${
+              filterFavorite
+                ? 'border-transparent bg-yellow-400/[0.15] dark:bg-yellow-500/[0.15] text-yellow-500'
+                : 'border-transparent bg-black/[0.04] dark:bg-white/[0.06] text-gray-400 hover:bg-black/[0.07] dark:hover:bg-white/[0.1]'
+            }`}
+          >
+            {activeFavoriteCollectionId ? <ChevronLeftIcon className="w-5 h-5" /> : <FavoriteIcon filled={filterFavorite} className="w-5 h-5" />}
+          </SearchActionButton>
+        )}
         {inCollectionOverview && (
           <SearchActionButton
             tooltip="管理收藏夹"

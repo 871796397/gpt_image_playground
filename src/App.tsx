@@ -6,10 +6,12 @@ import { getCustomProviderConfigUrl, hasEmbeddedDefaultConfig, loadCustomProvide
 import { getDefaultPresetProfileId, getPresetProfileIds, isPresetConfigOnlyEnabled, setPresetConfig } from './lib/presetConfig'
 import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
 import { useAppFonts } from './hooks/useAppFonts'
+import { useColorMode } from './hooks/useColorMode'
 import { useCloseConfirm } from './hooks/useCloseConfirm'
 import { promptImportLink, useImportLinks } from './hooks/useImportLinks'
 import { useAutoUpdateCheck } from './hooks/useReleaseUpdates'
 import { useSaveLocationPrompt } from './hooks/useSaveLocationPrompt'
+import { usePrivacyModeShortcut } from './hooks/usePrivacyMode'
 import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
@@ -25,6 +27,7 @@ import Toast from './components/Toast'
 import DbBlockedNotice from './components/DbBlockedNotice'
 import MaskEditorModal from './components/MaskEditorModal'
 import SketchBoardModal from './components/SketchBoardModal'
+import TitleBar from './components/TitleBar'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import AnnouncementModal from './components/AnnouncementModal'
@@ -33,7 +36,7 @@ import { showStartupNotices, type NoticeSection } from './components/startupNoti
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 import { takeDataDirNotice } from './lib/dbTauri'
 import { installMcpBridge } from './lib/mcpBridge'
-import { isTauri } from './lib/platform'
+import { isTauri, TITLEBAR_HEIGHT } from './lib/platform'
 import { setSaveToDefaultDir } from './lib/saveFile'
 import { setTauriLogEnabled } from './lib/tauriLog'
 import { getTauriStorageLoadError } from './lib/tauriStorage'
@@ -47,13 +50,17 @@ export default function App() {
   const writeLogFile = useStore((s) => s.settings.writeLogFile)
   const saveLocationMode = useStore((s) => s.settings.saveLocationMode)
   const autoCheckUpdate = useStore((s) => s.settings.autoCheckUpdate)
+  const privacyModeEpoch = useStore((s) => s.privacyModeEpoch)
+  const settingsModalEpoch = useStore((s) => s.settingsModalEpoch)
   const [startupImportDone, setStartupImportDone] = useState(false)
   useDockerApiUrlMigrationNotice()
   useAppFonts()
+  useColorMode()
   useGlobalClickSuppression()
   useCloseConfirm()
   useSaveLocationPrompt()
   useAutoUpdateCheck(autoCheckUpdate)
+  usePrivacyModeShortcut()
   // 运行中的链接导入要等启动时的预置配置写入完，否则会被启动流程覆盖
   useImportLinks(startupImportDone)
 
@@ -79,11 +86,11 @@ export default function App() {
           // unavailable 涵盖目录不可写、数据库版本过高、版本信息损坏、无法打开数据库等，按 Rust 侧的说明区分建议
           const unavailable = err.code === 'unavailable'
           const advice = !unavailable
-            ? '读取设置时数据库出错，可能已损坏。可以先在「设置 → 数据管理」中尝试导出备份，再反馈问题。'
+            ? '读取设置时数据库出错，可能已损坏。可以先在 **设置 → 数据管理** 中尝试导出备份，再反馈问题。'
             : err.message.includes('不可写')
               ? custom
-                ? '请在「设置 → 数据管理」中把数据目录改到有写权限的位置。'
-                : '可能装在了需要管理员权限的位置，比如 C:\\Program Files。可以重新安装到其他位置，或在 设置 → 数据管理 中更改数据目录。'
+                ? '请在 **设置 → 数据管理** 中把数据目录改到有写权限的位置。'
+                : '可能装在了需要管理员权限的位置，比如 C:\\Program Files。可以重新安装到其他位置，或在 **设置 → 数据管理** 中更改数据目录。'
               : err.message.includes('高于当前客户端')
                 ? '数据目录由更新版本的客户端创建，请升级到最新版本的客户端后再打开。'
                 : '数据库可能被其他程序占用或已损坏，关闭相关程序后重启再尝试。'
@@ -199,6 +206,7 @@ export default function App() {
     return () => document.removeEventListener('dragstart', preventPageImageDrag)
   }, [])
 
+  // 进入隐私模式时重新挂载带有内部弹窗或菜单的组件，直接丢弃其中未保存的内容
   return (
     <>
       <Header />
@@ -212,10 +220,10 @@ export default function App() {
           </div>
         </main>
       )}
-      <InputBar />
-      <DetailModal />
-      <Lightbox />
-      <SettingsModal />
+      <InputBar key={`input-${privacyModeEpoch}`} />
+      <DetailModal key={`detail-${privacyModeEpoch}`} />
+      <Lightbox key={`lightbox-${privacyModeEpoch}`} />
+      <SettingsModal key={`settings-${settingsModalEpoch}`} />
       <UpdateModal />
       <DataProgressDialog />
       <ConfirmDialog />
@@ -226,9 +234,10 @@ export default function App() {
       <ManageCollectionsModal />
       <Toast />
       <DbBlockedNotice />
-      <MaskEditorModal />
-      <SketchBoardModal />
-      <ImageContextMenu />
+      <MaskEditorModal key={`mask-${privacyModeEpoch}`} />
+      <SketchBoardModal key={`sketch-${privacyModeEpoch}`} />
+      <ImageContextMenu key={`menu-${privacyModeEpoch}`} />
+      {TITLEBAR_HEIGHT > 0 && <TitleBar />}
     </>
   )
 }
