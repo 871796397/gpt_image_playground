@@ -1063,7 +1063,7 @@ export default function DetailModal() {
               {formatDuration() && <span> · 耗时 {formatDuration()}</span>}
             </div>
 
-            {/* 仅客户端：任务 ID 和图片 ID，可复制给通过 MCP 连接的 Agent，让它直接读取图片而不必重新上传 */}
+            {/* 仅客户端：任务 ID 和图片 ID，可复制给使用命令行的 AI 工具，让它直接引用图片而不必重新上传 */}
             {isTauri && (
               <div className="mb-4 space-y-1 text-xs text-gray-400 dark:text-gray-500">
                 {[['任务 ID', task.id], ['图片 ID', currentOutputImageId]].filter(([, id]) => id).map(([label, id]) => (

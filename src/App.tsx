@@ -35,7 +35,7 @@ import { FavoriteCollectionPickerModal, FavoriteCollectionsView, ManageCollectio
 import { showStartupNotices, type NoticeSection } from './components/startupNotice'
 import { useGlobalClickSuppression } from './lib/clickSuppression'
 import { takeDataDirNotice } from './lib/dbTauri'
-import { installMcpBridge } from './lib/mcpBridge'
+import { installCliBridge } from './lib/cliBridge'
 import { isTauri, TITLEBAR_HEIGHT } from './lib/platform'
 import { setSaveToDefaultDir } from './lib/saveFile'
 import { setTauriLogEnabled } from './lib/tauriLog'
@@ -65,7 +65,7 @@ export default function App() {
   useImportLinks(startupImportDone)
 
   useEffect(() => {
-    if (isTauri) installMcpBridge()
+    if (isTauri) return installCliBridge()
   }, [])
 
   useEffect(() => {

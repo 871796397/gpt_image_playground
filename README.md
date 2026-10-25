@@ -187,6 +187,13 @@ Windows 用户可以直接安装桌面客户端；网页版可以部署到 Verce
 - 安装到普通文件夹（如 `D:\Apps\GPT Image Playground`）。装到 `C:\Program Files` 等需要管理员权限写入的位置会导致无法保存数据。
 - 数据默认保存在 `<安装目录>\data` 中，可在“设置 → 数据管理”中更改。
 
+**CLI 与 Skill**
+
+Claude Code、Codex 等本机 AI 工具可以通过 CLI `gpt-image-playground` 调用客户端：生成和编辑图片、读取历史记录、查看和修改全部设置（API Key 只能写入）。
+
+- 安装时勾选“添加到 PATH”即可直接运行；使用时客户端需要保持打开，用法见 `gpt-image-playground --help`。
+- 在“设置 → Skill”中安装随附的 Skill，AI 工具就知道何时、如何调用它。
+
 **自行构建**
 
 需要 Rust 和 Tauri 的 Windows 构建环境，见 [Tauri 前置条件](https://v2.tauri.app/start/prerequisites/)。
