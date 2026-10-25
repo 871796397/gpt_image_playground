@@ -209,17 +209,19 @@ export default function App() {
   // 进入隐私模式时重新挂载带有内部弹窗或菜单的组件，直接丢弃其中未保存的内容
   return (
     <>
-      <Header />
-      {appMode === 'agent' ? (
-        <AgentWorkspace />
-      ) : (
-        <main data-home-main data-drag-select-surface className="pb-48">
-          <div className="safe-area-x max-w-7xl mx-auto">
-            <SearchBar />
-            {filterFavorite && !activeFavoriteCollectionId ? <FavoriteCollectionsView /> : <TaskGrid />}
-          </div>
-        </main>
-      )}
+      <div data-page-scroll>
+        <Header />
+        {appMode === 'agent' ? (
+          <AgentWorkspace />
+        ) : (
+          <main data-home-main data-drag-select-surface className="pb-48">
+            <div className="safe-area-x max-w-7xl mx-auto">
+              <SearchBar />
+              {filterFavorite && !activeFavoriteCollectionId ? <FavoriteCollectionsView /> : <TaskGrid />}
+            </div>
+          </main>
+        )}
+      </div>
       <InputBar key={`input-${privacyModeEpoch}`} />
       <DetailModal key={`detail-${privacyModeEpoch}`} />
       <Lightbox key={`lightbox-${privacyModeEpoch}`} />
