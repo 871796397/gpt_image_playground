@@ -9,7 +9,8 @@
 - 使用 GitHub 连接构建：`npm run build`，部署：`npx wrangler deploy`。首次有 Worker 入口后，在 Cloudflare Runtime variables and secrets 中添加 Secret `OPENAI_API_KEY` 并部署。
 - `workers_dev` 和 `preview_urls` 保持 `false`。Access 邮箱策略覆盖整个 `imgae.godling.uk`，包含 `/api/` 和 `/api-proxy/`。
 - 更换 Key 时只更新 Secret，无需重建前端。
-- Worker 通过 `placement.region = aws:us-east-1` 在美国东部附近运行；避免 API 请求随访问者所在边缘节点切换出口，触发上游 `unsupported_country_region_territory`。`/api/health` 返回 `colo` 和 `cf-placement` 的值供登录后诊断，以 `placement` 中的节点确认执行位置。
+- Worker 通过 `placement.region = aws:us-east-1` 请求在美国东部附近运行。Placement 是调度提示，不保证上游看到的网络来源；需同时核验实际请求结果。`/api/health` 的 `ingressColo` 是访问入口，响应头 `cf-placement` 表示调度节点，两者不能混为一谈。
+- 登录后访问 `/api/health?diagnose=1` 可读取固定模型元信息并执行无凭据的 Cloudflare 网络诊断，不生成图片。返回上游状态、错误码、追踪 ID、网络诊断节点和国家；不返回 Key、完整上游响应或访问者 IP。
 - `GALLERY_ADMIN_EMAILS` 用逗号分隔图库管理员邮箱；成员只能删除自己的共享作品，管理员可删除全部作品。权限由 Worker 使用已验证的 Access 身份校验。
 
 ## 行为与范围

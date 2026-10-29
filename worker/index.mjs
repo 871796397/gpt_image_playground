@@ -79,7 +79,7 @@ async function proxy(request, env, email, path, requestId) {
     const error = await response.json().catch(() => ({}))
     const code = error.error?.code
     const detail = String(error.error?.message || '').replaceAll(env.OPENAI_API_KEY, '[redacted]').slice(0, 600)
-    console.warn(JSON.stringify({ event: 'openai_error', requestId, user: safetyId, path, model, status: response.status, code, detail, colo: request.cf?.colo, placement: request.headers.get('cf-placement') }))
+    console.warn(JSON.stringify({ event: 'openai_error', requestId, user: safetyId, path, model, status: response.status, code, detail, ingressColo: request.cf?.colo, upstreamRay: response.headers.get('cf-ray'), upstreamRequestId: response.headers.get('x-request-id') }))
     const message = response.status === 401 ? '官方 API Key 无效，请联系管理员'
       : response.status === 429 ? '官方 API 额度不足或请求过多，请稍后重试或联系管理员'
         : code === 'unsupported_country_region_territory' ? '生图服务的服务器出口地区不受官方 API 支持，请联系管理员检查部署区域'
@@ -180,7 +180,21 @@ export default {
       const email = await authenticate(request, env)
       if (request.method !== 'GET' && request.headers.get('Origin') !== env.APP_ORIGIN) throw new ApiError(403, '请求来源无效，请刷新后重试')
       if (Number(request.headers.get('Content-Length')) > 55 * 1024 * 1024) throw new ApiError(413, '上传内容过大')
-      if (url.pathname === '/api/health') return json({ ready: Boolean(env.OPENAI_API_KEY && env.GALLERY), sharedGallery: Boolean(env.GALLERY), colo: request.cf?.colo || null, placement: request.headers.get('cf-placement') })
+      if (url.pathname === '/api/health') {
+        const health = { ready: Boolean(env.OPENAI_API_KEY && env.GALLERY), sharedGallery: Boolean(env.GALLERY), ingressColo: request.cf?.colo || null }
+        if (url.searchParams.get('diagnose') !== '1') return json(health)
+        if (request.method !== 'GET') throw new ApiError(405, '不支持此操作')
+        if (!env.OPENAI_API_KEY) throw new ApiError(503, '管理员尚未配置生图服务')
+        const [upstream, trace] = await Promise.all([
+          fetch('https://api.openai.com/v1/models/gpt-image-2.5-sunburst', { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, redirect: 'manual', signal: AbortSignal.timeout(10000) }),
+          fetch('https://www.cloudflare.com/cdn-cgi/trace', { redirect: 'manual', signal: AbortSignal.timeout(10000) }).then((r) => r.text()).catch(() => ''),
+        ])
+        const result = await upstream.json().catch(() => ({}))
+        const location = Object.fromEntries(trace.split('\n').filter((line) => line.includes('=')).map((line) => line.split('=')))
+        const diagnostic = { requestId, upstreamStatus: upstream.status, upstreamCode: result.error?.code || null, upstreamRay: upstream.headers.get('cf-ray'), upstreamRequestId: upstream.headers.get('x-request-id'), traceColo: location.colo || null, traceCountry: location.loc || null }
+        console.info(JSON.stringify({ event: 'openai_diagnostic', user: await digest(email), ...health, ...diagnostic }))
+        return json({ ...health, ...diagnostic })
+      }
       if (url.pathname.startsWith('/api-proxy/')) return await proxy(request, env, email, url.pathname.slice('/api-proxy/'.length), requestId)
       return await gallery(request, env, email, url)
     } catch (error) {

@@ -61,6 +61,25 @@ describe('Cloudflare shared service', () => {
     expect((await worker.fetch(new Request(`${origin}/api/health`, { headers: forged }), env)).status).toBe(401)
   })
 
+  it('diagnoses model access without generating images or exposing credentials and visitor IPs', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const network = mockNetwork((url) => String(url).includes('/cdn-cgi/trace')
+      ? new Response('colo=IAD\nloc=US\nip=192.0.2.1\n')
+      : Response.json({ error: { code: 'unsupported_country_region_territory', message: env.OPENAI_API_KEY } }, { status: 403, headers: { 'cf-ray': 'trace-HKG' } }))
+    const result = await worker.fetch(new Request(`${origin}/api/health?diagnose=1`, { headers: await headers({ email: 'designer@example.com' }) }), env)
+    const body = await result.json()
+    expect(body.upstreamStatus).toBe(403)
+    expect(body.upstreamCode).toBe('unsupported_country_region_territory')
+    expect(body.traceCountry).toBe('US')
+    expect(body.traceColo).toBe('IAD')
+    expect(network.mock.calls.every(([url]) => !String(url).includes('/images/'))).toBe(true)
+    const diagnostic = JSON.stringify([body, info.mock.calls])
+    expect(diagnostic).not.toContain(env.OPENAI_API_KEY)
+    expect(diagnostic).not.toContain('192.0.2.1')
+    expect(diagnostic).not.toContain('designer@example.com')
+    info.mockRestore()
+  })
+
   it('injects the secret only for the fixed OpenAI endpoint and strips client credentials', async () => {
     const fetchMock = mockNetwork()
     const response = await worker.fetch(new Request(`${origin}/api-proxy/images/generations`, { method: 'POST', headers: { ...await headers(), Authorization: 'Bearer untrusted', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-image-2.5-sunburst', prompt: 'test', n: 1 }) }), env)
