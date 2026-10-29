@@ -1,6 +1,3 @@
-import { getBackend, probeUpstream } from './upstream.mjs'
-export { OpenAIBackend } from './upstream.mjs'
-
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
 const imageModels = new Set(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2'])
 let certCache
@@ -76,10 +73,7 @@ async function proxy(request, env, email, path, requestId) {
   else body.safety_identifier = safetyId
   const headers = new Headers({ Authorization: `Bearer ${env.OPENAI_API_KEY}` })
   if (!multipart) headers.set('Content-Type', 'application/json')
-  const init = { method: 'POST', headers, body: multipart ? body : JSON.stringify(body), signal: request.signal, redirect: 'manual' }
-  const response = env.OPENAI_BACKEND
-    ? await getBackend(env).fetch(new Request(`https://openai-backend.internal/${path}`, init))
-    : await fetch(`https://api.openai.com/v1/${path}`, init)
+  const response = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers, body: multipart ? body : JSON.stringify(body), signal: request.signal, redirect: 'manual' })
   if (response.status >= 300 && response.status < 400) throw new ApiError(502, '官方 API 返回了异常重定向，请联系管理员')
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
@@ -191,11 +185,13 @@ export default {
         if (url.searchParams.get('diagnose') !== '1') return json(health)
         if (request.method !== 'GET') throw new ApiError(405, '不支持此操作')
         if (!env.OPENAI_API_KEY) throw new ApiError(503, '管理员尚未配置生图服务')
-        const [direct, backend] = await Promise.all([
-          probeUpstream(env),
-          env.OPENAI_BACKEND ? getBackend(env).fetch(new Request('https://openai-backend.internal/diagnose')).then((r) => r.json()) : null,
+        const [upstream, trace] = await Promise.all([
+          fetch('https://api.openai.com/v1/models/gpt-image-2.5-sunburst', { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, redirect: 'manual', signal: AbortSignal.timeout(10000) }),
+          fetch('https://www.cloudflare.com/cdn-cgi/trace', { redirect: 'manual', signal: AbortSignal.timeout(10000) }).then((r) => r.text()).catch(() => ''),
         ])
-        const diagnostic = { requestId, ...direct, backend }
+        const result = await upstream.json().catch(() => ({}))
+        const location = Object.fromEntries(trace.split('\n').filter((line) => line.includes('=')).map((line) => line.split('=')))
+        const diagnostic = { requestId, upstreamStatus: upstream.status, upstreamCode: result.error?.code || null, upstreamRay: upstream.headers.get('cf-ray'), upstreamRequestId: upstream.headers.get('x-request-id'), traceColo: location.colo || null, traceCountry: location.loc || null }
         console.info(JSON.stringify({ event: 'openai_diagnostic', user: await digest(email), ...health, ...diagnostic }))
         return json({ ...health, ...diagnostic })
       }

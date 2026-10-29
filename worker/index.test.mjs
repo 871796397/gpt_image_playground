@@ -1,5 +1,5 @@
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
-import worker, { OpenAIBackend } from './index.mjs'
+import worker from './index.mjs'
 
 let signingKey
 let publicKey
@@ -90,38 +90,6 @@ describe('Cloudflare shared service', () => {
     expect(init.redirect).toBe('manual')
     expect(JSON.parse(init.body).safety_identifier).toMatch(/^[a-f0-9]{64}$/)
     expect(await response.text()).not.toContain(env.OPENAI_API_KEY)
-  })
-
-  it('routes authenticated JSON and multipart requests through the private US backend and preserves streaming', async () => {
-    const deployment = { ...env }
-    const backend = new OpenAIBackend({}, deployment)
-    const namespace = { idFromName: vi.fn((name) => name), get: vi.fn(() => ({ fetch: (request) => backend.fetch(request) })) }
-    deployment.OPENAI_BACKEND = { jurisdiction: vi.fn(() => namespace) }
-    const network = mockNetwork((_url, init) => {
-      expect(init.headers.get('Authorization')).toBe(`Bearer ${env.OPENAI_API_KEY}`)
-      expect(init.headers.get('CF-IPCountry')).toBeNull()
-      expect(init.headers.get('Cf-Access-Jwt-Assertion')).toBeNull()
-      expect(init.redirect).toBe('manual')
-      return new Response('data: image\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
-    })
-    const json = JSON.stringify({ model: 'gpt-image-2.5-sunburst', prompt: 'test' })
-    const form = new FormData()
-    form.set('model', 'gpt-image-2.5-sunburst')
-    form.set('prompt', 'edit test')
-    form.append('image', new Blob(['image'], { type: 'image/png' }), 'test.png')
-    for (const [path, body] of [['images/generations', json], ['images/edits', form]]) {
-      const auth = { ...await headers(), 'CF-IPCountry': 'HK' }
-      if (typeof body === 'string') auth['Content-Type'] = 'application/json'
-      const result = await worker.fetch(new Request(`${origin}/api-proxy/${path}`, { method: 'POST', headers: auth, body }), deployment)
-      expect(result.status).toBe(200)
-      expect(result.headers.get('Content-Type')).toBe('text/event-stream')
-      expect(await result.text()).toBe('data: image\n\n')
-    }
-    expect(deployment.OPENAI_BACKEND.jurisdiction).toHaveBeenCalledWith('us')
-    expect(namespace.get).toHaveBeenCalledWith('openai-v1', { locationHint: 'enam' })
-    expect(network.mock.calls.filter(([url]) => String(url).startsWith('https://api.openai.com/'))).toHaveLength(2)
-    expect((await backend.fetch(new Request('https://evil.example/images/generations', { method: 'POST' }))).status).toBe(404)
-    expect((await backend.fetch(new Request('https://openai-backend.internal/unapproved', { method: 'POST' }))).status).toBe(404)
   })
 
   it('rejects arbitrary proxy paths, unsupported models and cross-origin writes', async () => {

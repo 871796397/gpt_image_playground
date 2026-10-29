@@ -14,8 +14,6 @@
   },
   "observability": { "enabled": true, "head_sampling_rate": 1 },
   "r2_buckets": [{ "binding": "GALLERY", "bucket_name": "gpt-image-shared-gallery" }],
-  "durable_objects": { "bindings": [{ "name": "OPENAI_BACKEND", "class_name": "OpenAIBackend" }] },
-  "migrations": [{ "tag": "openai-backend-v1", "new_sqlite_classes": ["OpenAIBackend"] }],
   "assets": {
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/api-proxy/*"],
