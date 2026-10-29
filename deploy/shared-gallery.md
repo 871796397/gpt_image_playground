@@ -11,6 +11,7 @@
 - 更换 Key 时只更新 Secret，无需重建前端。
 - Worker 通过 `placement.region = aws:us-east-1` 请求在美国东部附近运行。Placement 是调度提示，不保证上游看到的网络来源；需同时核验实际请求结果。`/api/health` 的 `ingressColo` 是访问入口，响应头 `cf-placement` 表示调度节点，两者不能混为一谈。
 - 登录后访问 `/api/health?diagnose=1` 可读取固定模型元信息并执行无凭据的 Cloudflare 网络诊断，不生成图片。返回上游状态、错误码、追踪 ID、网络诊断节点和国家；不返回 Key、完整上游响应或访问者 IP。
+- `OPENAI_BACKEND` 是同一 Worker 的私有 SQLite Durable Object binding，使用 `us` jurisdiction 和 `enam` location hint。只负责向固定 OpenAI 地址转发，不读写存储，不接受公开请求。生图调用经过 Access 校验和参数检查后进入后端；诊断同时返回直连及 `backend` 结果供比较。
 - `GALLERY_ADMIN_EMAILS` 用逗号分隔图库管理员邮箱；成员只能删除自己的共享作品，管理员可删除全部作品。权限由 Worker 使用已验证的 Access 身份校验。
 
 ## 行为与范围
