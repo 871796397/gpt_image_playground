@@ -6,6 +6,7 @@ import { customProviderSupportsNativeTransparentBackground } from '../lib/custom
 import { hasActiveDataOperations, trackDataTransfer } from '../lib/dataOperations'
 import { useSettingsDataTransfer } from '../lib/dataProgress'
 import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from '../lib/devProxy'
+import { isManagedApiProfile } from '../lib/managedApi'
 import { isTauri } from '../lib/platform'
 import { useStore, exportData, importData, clearData, type SettingsTab } from '../store'
 import {
@@ -301,7 +302,7 @@ export default function SettingsModal() {
 
   const agentProfiles = (presetConfigOnly ? visibleProfiles : draft.profiles)
     .filter((profile) => {
-      if (!profile.apiKey.trim()) return false
+      if (!profile.apiKey.trim() && !isManagedApiProfile(profile)) return false
       if (profile.baseUrl.trim() || profile.provider === 'fal') return true
       return apiProxyAvailable && isProfileApiProxyEligible(draft, profile) && (apiProxyLocked || profile.apiProxy)
     })
@@ -1500,6 +1501,9 @@ export default function SettingsModal() {
               )}
 
               {/* 5. API Key */}
+              {isManagedApiProfile(activeProfile) ? (
+                <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700 dark:bg-blue-950/30 dark:text-blue-200">已使用统一生图服务，无需填写 API Key。</p>
+              ) : (
               <div className="block">
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">API Key</span>
                 <div className="relative">
@@ -1537,6 +1541,7 @@ export default function SettingsModal() {
                 </div>
               </div>
 
+              )}
               {/* 6. API 接口（Images/Responses） */}
               {activeProfile.provider === 'openai' && (
                 <div className="block">

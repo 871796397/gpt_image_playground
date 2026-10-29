@@ -25,6 +25,7 @@ import {
   PROMPT_REWRITE_GUARD_PREFIX,
 } from './imageApiShared'
 import { getImageGenerationModel } from './imageModels'
+import { isManagedApiProfile } from './managedApi'
 import { apiFetch, FetchConnectError } from './platform'
 import { isEventStreamResponse, readJsonServerSentEvents } from './serverSentEvents'
 import { prependCodexCliSizePrompt } from './size'
@@ -90,6 +91,7 @@ function normalizeImageApiPayload(value: unknown): ImageApiResponse {
 }
 
 function createRequestHeaders(profile: ApiProfile): Record<string, string> {
+  if (isManagedApiProfile(profile)) return {}
   return {
     Authorization: `Bearer ${profile.apiKey}`,
   }

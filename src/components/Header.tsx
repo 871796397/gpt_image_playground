@@ -5,6 +5,7 @@ import { useTooltip } from '../hooks/useTooltip'
 import { detectOs } from '../lib/announcements'
 import { getPageScroller, getPageScrollTop } from '../lib/pageScroll'
 import { isTauri } from '../lib/platform'
+import { managedApiEnabled } from '../lib/managedApi'
 import { RELEASES_PAGE_URL, shouldShowUpdate } from '../lib/releaseUpdates'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
@@ -27,7 +28,7 @@ function isInstalledPwa() {
   return window.matchMedia('(display-mode: standalone)').matches || nav.standalone === true
 }
 
-export default function Header() {
+export default function Header({ onOpenSharedGallery }: { onOpenSharedGallery?: () => void }) {
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
   const setShowSettings = useStore((s) => s.setShowSettings)
@@ -280,6 +281,7 @@ export default function Header() {
             </button>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {managedApiEnabled && <button type="button" onClick={onOpenSharedGallery} className="rounded-lg bg-blue-50 px-2 py-2 text-xs font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-200">共享图库</button>}
             {/* 客户端本身就是安装版，不显示 PWA 安装入口 */}
             {!isTauri && !isPwaInstalled && (
               <div

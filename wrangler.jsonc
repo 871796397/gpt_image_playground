@@ -1,10 +1,19 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "gpt-image-playground",
+  "main": "worker/index.mjs",
   "compatibility_date": "2026-05-07",
   "workers_dev": false,
   "preview_urls": false,
+  "vars": {
+    "APP_ORIGIN": "https://imgae.godling.uk",
+    "ACCESS_ISSUER": "https://godling.cloudflareaccess.com",
+    "ACCESS_AUD": "123cadbe864f5673bc34f1206fe25f68093add1ac1c068c3e04d8f7974cf8fea"
+  },
+  "r2_buckets": [{ "binding": "GALLERY", "bucket_name": "gpt-image-shared-gallery" }],
   "assets": {
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/api-proxy/*"],
     "directory": "./dist",
     "not_found_handling": "single-page-application"
   }

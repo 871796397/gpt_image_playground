@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { initStore, useStore } from './store'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { createDefaultOpenAIProfile, hasDefaultPresetConfig, isAgentTextApiProfile, normalizeSettings } from './lib/apiProfiles'
@@ -40,6 +40,9 @@ import { isTauri, TITLEBAR_HEIGHT } from './lib/platform'
 import { setSaveToDefaultDir } from './lib/saveFile'
 import { setTauriLogEnabled } from './lib/tauriLog'
 import { getTauriStorageLoadError } from './lib/tauriStorage'
+import { useSharedGallerySync } from './hooks/useSharedGallerySync'
+
+const SharedGalleryModal = lazy(() => import('./components/SharedGalleryModal'))
 
 let defaultConfigImportStarted = false
 
@@ -53,6 +56,8 @@ export default function App() {
   const privacyModeEpoch = useStore((s) => s.privacyModeEpoch)
   const settingsModalEpoch = useStore((s) => s.settingsModalEpoch)
   const [startupImportDone, setStartupImportDone] = useState(false)
+  const [showSharedGallery, setShowSharedGallery] = useState(false)
+  useSharedGallerySync(startupImportDone)
   useDockerApiUrlMigrationNotice()
   useAppFonts()
   useColorMode()
@@ -210,7 +215,7 @@ export default function App() {
   return (
     <>
       <div data-page-scroll>
-        <Header />
+        <Header onOpenSharedGallery={() => setShowSharedGallery(true)} />
         {appMode === 'agent' ? (
           <AgentWorkspace />
         ) : (
@@ -235,6 +240,7 @@ export default function App() {
       <FavoriteCollectionPickerModal />
       <ManageCollectionsModal />
       <Toast />
+      {showSharedGallery && <Suspense fallback={null}><SharedGalleryModal onClose={() => setShowSharedGallery(false)} /></Suspense>}
       <DbBlockedNotice />
       <MaskEditorModal key={`mask-${privacyModeEpoch}`} />
       <SketchBoardModal key={`sketch-${privacyModeEpoch}`} />

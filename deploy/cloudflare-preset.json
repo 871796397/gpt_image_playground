@@ -1,0 +1,30 @@
+{
+  "profiles": [
+    {
+      "id": "default-openai",
+      "name": "官方共享生图",
+      "description": "登录成员共用官方生图服务，无需填写 Key。新生成作品会自动同步到共享图库，供成员查看。",
+      "provider": "openai",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-image-2.5-sunburst, gpt-image-2.5-flare",
+      "apiMode": "images",
+      "apiProxy": true,
+      "isDefault": true
+    },
+    {
+      "id": "shared-agent-text",
+      "name": "官方共享 Agent",
+      "provider": "openai",
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-6.1-sol",
+      "imageGenerationModel": "gpt-image-2.5-sunburst",
+      "apiMode": "responses",
+      "apiProxy": true
+    }
+  ],
+  "agent": {
+    "apiConfigMode": "native",
+    "textProfileId": "shared-agent-text",
+    "imageProfileId": "default-openai"
+  }
+}
