@@ -36,7 +36,8 @@ function bucket() {
       const item = values.get(key)
       return item && { body: item.value, httpMetadata: item.options.httpMetadata, json: async () => JSON.parse(item.value) }
     },
-    async list() { return { objects: [...values.keys()].filter((key) => key.startsWith('tasks/')).sort().map((key) => ({ key })), truncated: false } },
+    async delete(keys) { for (const key of Array.isArray(keys) ? keys : [keys]) values.delete(key) },
+    async list({ prefix }) { return { objects: [...values.keys()].filter((key) => key.startsWith(prefix)).sort().map((key) => ({ key })), truncated: false } },
   }
 }
 
@@ -86,6 +87,53 @@ describe('Cloudflare shared service', () => {
     const result = await worker.fetch(new Request(`${origin}/api-proxy/images/generations`, { method: 'POST', headers: { ...await headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-image-2.5-sunburst' }) }), env)
     expect(result.status).toBe(502)
     expect(result.headers.get('Location')).toBeNull()
+  })
+
+  it('preserves the real upstream rejection and a traceable request ID without leaking the key', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockNetwork(() => Response.json({ error: { code: 'safety_identifier_blocked', message: `Request rejected ${env.OPENAI_API_KEY}` } }, { status: 403 }))
+    const result = await worker.fetch(new Request(`${origin}/api-proxy/images/generations`, { method: 'POST', headers: { ...await headers({ email: 'designer@example.com' }), 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-image-2.5-flare' }) }), env)
+    const body = await result.json()
+    expect(result.status).toBe(403)
+    expect(body.error.message).toContain('safety_identifier_blocked')
+    expect(body.error.message).not.toContain('模型使用权限')
+    expect(body.requestId).toBeTruthy()
+    const log = JSON.parse(warning.mock.calls[0][0])
+    expect(log.user).toMatch(/^[a-f0-9]{64}$/)
+    expect(log.requestId).toBe(body.requestId)
+    expect(JSON.stringify([body, log])).not.toContain(env.OPENAI_API_KEY)
+    expect(JSON.stringify(log)).not.toContain('designer@example.com')
+    warning.mockRestore()
+  })
+
+  it('allows the author or administrator to delete, removes cloud images and prevents stale resync', async () => {
+    mockNetwork()
+    const storage = bucket()
+    const deployment = { ...env, GALLERY: storage, GALLERY_ADMIN_EMAILS: 'ADMIN@example.com' }
+    const publish = async (localId) => {
+      const form = new FormData()
+      form.set('task', JSON.stringify({ id: localId, createdAt: 1000, prompt: 'delete test' }))
+      form.append('images', new Blob(['image'], { type: 'image/png' }), 'output.png')
+      return worker.fetch(new Request(`${origin}/api/shared-gallery`, { method: 'POST', headers: await headers(), body: form }), deployment)
+    }
+    const item = await (await publish('delete-me')).json()
+    const target = `${origin}/api/shared-gallery/${item.id}?createdAt=1000`
+    const listing = async (email) => (await worker.fetch(new Request(`${origin}/api/shared-gallery`, { headers: await headers({ email }) }), deployment)).json()
+    expect((await listing('friend@example.com')).items[0].canDelete).toBe(false)
+    expect((await listing('admin@example.com')).items[0].canDelete).toBe(true)
+    expect((await worker.fetch(new Request(target, { method: 'DELETE' }), deployment)).status).toBe(401)
+    expect((await worker.fetch(new Request(target, { method: 'DELETE', headers: await headers({ email: 'friend@example.com' }) }), deployment)).status).toBe(403)
+    expect((await worker.fetch(new Request(target, { method: 'DELETE', headers: { ...await headers(), Origin: 'https://evil.example' } }), deployment)).status).toBe(403)
+    for (let i = 0; i < 2; i++) expect((await worker.fetch(new Request(target, { method: 'DELETE', headers: await headers() }), deployment)).status).toBe(200)
+    expect((await listing('owner@example.com')).items).toEqual([])
+    expect((await worker.fetch(new Request(`${origin}${item.images[0]}`, { headers: await headers() }), deployment)).status).toBe(404)
+    expect([...storage.values.keys()]).toEqual([`deleted/${item.id}.json`])
+    const retry = await publish('delete-me')
+    expect(retry.status).toBe(410)
+    expect((await retry.json()).error.code).toBe('shared_gallery_deleted')
+    const other = await (await publish('admin-delete')).json()
+    expect((await worker.fetch(new Request(`${origin}/api/shared-gallery/${other.id}?createdAt=1000`, { method: 'DELETE', headers: await headers({ email: 'admin@example.com' }) }), deployment)).status).toBe(200)
+    expect((await listing('owner@example.com')).items).toEqual([])
   })
 
   it('publishes once, lists across members, and protects image reads', async () => {

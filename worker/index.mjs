@@ -3,7 +3,7 @@ const imageModels = new Set(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'g
 let certCache
 
 class ApiError extends Error {
-  constructor(status, message) { super(message); this.status = status }
+  constructor(status, message, code) { super(message); this.status = status; this.code = code }
 }
 
 function decode64(value) {
@@ -53,7 +53,7 @@ async function readBody(request) {
   return new Response(new Blob(chunks), { headers: { 'Content-Type': request.headers.get('Content-Type') || '' } })
 }
 
-async function proxy(request, env, email, path) {
+async function proxy(request, env, email, path, requestId) {
   if (request.method !== 'POST' || !['images/generations', 'images/edits', 'responses'].includes(path)) throw new ApiError(404, '接口不存在')
   if (!env.OPENAI_API_KEY) throw new ApiError(503, '管理员尚未配置生图服务')
   const safetyId = await digest(email)
@@ -78,13 +78,32 @@ async function proxy(request, env, email, path) {
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
     const code = error.error?.code
+    const detail = String(error.error?.message || '').replaceAll(env.OPENAI_API_KEY, '[redacted]').slice(0, 600)
+    console.warn(JSON.stringify({ event: 'openai_error', requestId, user: safetyId, path, model, status: response.status, code, detail }))
     const message = response.status === 401 ? '官方 API Key 无效，请联系管理员'
       : response.status === 429 ? '官方 API 额度不足或请求过多，请稍后重试或联系管理员'
-        : response.status === 403 ? '此项目尚无该模型使用权限，请联系管理员'
-          : error.error?.message?.replaceAll(env.OPENAI_API_KEY, '[redacted]') || '官方生图服务暂时不可用'
-    return json({ error: { message, code } }, response.status)
+        : response.status === 403 ? `官方 API 拒绝了请求${code ? `（${code}）` : ''}：${detail || '请联系管理员检查项目权限或内容限制'}`
+          : detail || '官方生图服务暂时不可用'
+    return json({ error: { message, code }, requestId }, response.status)
   }
   return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
+}
+
+function canDelete(item, email, env) {
+  return item.author.toLowerCase() === email || (env.GALLERY_ADMIN_EMAILS || '').split(',').some((value) => value.trim().toLowerCase() === email)
+}
+
+function taskKey(createdAt, id) {
+  return `tasks/${String(9999999999999 - createdAt).padStart(13, '0')}/${id}.json`
+}
+
+async function removeImages(env, id) {
+  let cursor
+  do {
+    const page = await env.GALLERY.list({ prefix: `images/${id}/`, cursor })
+    if (page.objects.length) await env.GALLERY.delete(page.objects.map((item) => item.key))
+    cursor = page.truncated ? page.cursor : undefined
+  } while (cursor)
 }
 
 async function gallery(request, env, email, url) {
@@ -93,16 +112,35 @@ async function gallery(request, env, email, url) {
     if (request.method !== 'GET') throw new ApiError(405, '不支持此操作')
     const key = decodeURIComponent(url.pathname.slice('/api/shared-gallery/image/'.length))
     if (!/^images\/[a-f0-9]{64}\/\d+\.(png|jpeg|webp)$/.test(key)) throw new ApiError(404, '图片不存在')
+    if (await env.GALLERY.get(`deleted/${key.split('/')[1]}.json`)) throw new ApiError(404, '图片不存在')
     const object = await env.GALLERY.get(key)
     if (!object) throw new ApiError(404, '图片不存在')
     return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata.contentType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } })
+  }
+  if (request.method === 'DELETE' && url.pathname.startsWith('/api/shared-gallery/')) {
+    const id = url.pathname.slice('/api/shared-gallery/'.length)
+    const createdAt = Number(url.searchParams.get('createdAt'))
+    if (!/^[a-f0-9]{64}$/.test(id) || !url.searchParams.has('createdAt') || !Number.isSafeInteger(createdAt) || createdAt < 0 || createdAt > Date.now() + 60000) throw new ApiError(400, '作品信息无效')
+    const key = taskKey(createdAt, id)
+    const tombstoneKey = `deleted/${id}.json`
+    const object = await env.GALLERY.get(tombstoneKey) || await env.GALLERY.get(key)
+    if (!object) throw new ApiError(404, '作品不存在')
+    const item = await object.json()
+    if (!canDelete(item, email, env)) throw new ApiError(403, '只能删除自己发布的作品')
+    if (item.createdAt !== createdAt) throw new ApiError(404, '作品不存在')
+    // 保留最小删除标记，阻止离线同步队列重新发布已删除的作品。
+    await env.GALLERY.put(tombstoneKey, JSON.stringify({ author: item.author, createdAt, deletedAt: Date.now() }), { httpMetadata: { contentType: 'application/json' } })
+    await removeImages(env, id)
+    await env.GALLERY.delete(key)
+    return json({ id, deleted: true })
   }
   if (url.pathname !== '/api/shared-gallery') throw new ApiError(404, '接口不存在')
   if (request.method === 'GET') {
     const result = await env.GALLERY.list({ prefix: 'tasks/', limit: 24, cursor: url.searchParams.get('cursor') || undefined })
     const objects = await Promise.all(result.objects.map((item) => env.GALLERY.get(item.key)))
     const items = await Promise.all(objects.filter(Boolean).map((item) => item.json()))
-    return json({ items, cursor: result.truncated ? result.cursor : null, viewer: email })
+    const visible = await Promise.all(items.map(async (item) => await env.GALLERY.get(`deleted/${item.id}.json`) ? null : { ...item, canDelete: canDelete(item, email, env) }))
+    return json({ items: visible.filter(Boolean), cursor: result.truncated ? result.cursor : null, viewer: email })
   }
   if (request.method !== 'POST') throw new ApiError(405, '不支持此操作')
   const form = await (await readBody(request)).formData()
@@ -113,7 +151,8 @@ async function gallery(request, env, email, url) {
   if (!files.length || files.length > 10 || files.some((f) => typeof f === 'string' || !['image/png', 'image/jpeg', 'image/webp'].includes(f.type) || f.size > 20 * 1024 * 1024 || !f.size)) throw new ApiError(400, '只支持 PNG、JPEG、WebP 图片，每张最多 20MB，单次最多 10 张')
   if (files.reduce((sum, f) => sum + f.size, 0) > 50 * 1024 * 1024) throw new ApiError(413, '作品总大小不能超过 50MB')
   const id = await digest(`${email}:${task.id}`)
-  const key = `tasks/${String(9999999999999 - task.createdAt).padStart(13, '0')}/${id}.json`
+  if (await env.GALLERY.get(`deleted/${id}.json`)) throw new ApiError(410, '作品已从共享图库删除', 'shared_gallery_deleted')
+  const key = taskKey(task.createdAt, id)
   const images = await Promise.all(files.map(async (file, idx) => {
     const type = file.type.split('/')[1]
     const imageKey = `images/${id}/${idx}.${type}`
@@ -122,6 +161,11 @@ async function gallery(request, env, email, url) {
   }))
   const item = { id, prompt: task.prompt, model: String(task.model || '').slice(0, 100), createdAt: task.createdAt, author: email, images }
   await env.GALLERY.put(key, JSON.stringify(item), { httpMetadata: { contentType: 'application/json' } })
+  if (await env.GALLERY.get(`deleted/${id}.json`)) {
+    await removeImages(env, id)
+    await env.GALLERY.delete(key)
+    throw new ApiError(410, '作品已从共享图库删除', 'shared_gallery_deleted')
+  }
   return json(item, 201)
 }
 
@@ -136,10 +180,10 @@ export default {
       if (request.method !== 'GET' && request.headers.get('Origin') !== env.APP_ORIGIN) throw new ApiError(403, '请求来源无效，请刷新后重试')
       if (Number(request.headers.get('Content-Length')) > 55 * 1024 * 1024) throw new ApiError(413, '上传内容过大')
       if (url.pathname === '/api/health') return json({ ready: Boolean(env.OPENAI_API_KEY && env.GALLERY), sharedGallery: Boolean(env.GALLERY) })
-      if (url.pathname.startsWith('/api-proxy/')) return await proxy(request, env, email, url.pathname.slice('/api-proxy/'.length))
+      if (url.pathname.startsWith('/api-proxy/')) return await proxy(request, env, email, url.pathname.slice('/api-proxy/'.length), requestId)
       return await gallery(request, env, email, url)
     } catch (error) {
-      if (error instanceof ApiError) return json({ error: { message: error.message }, requestId }, error.status)
+      if (error instanceof ApiError) return json({ error: { message: error.message, code: error.code }, requestId }, error.status)
       if (error instanceof SyntaxError || error instanceof TypeError && request.method !== 'GET' && !request.headers.get('Content-Type')) return json({ error: { message: '请求格式无效' }, requestId }, 400)
       console.error(JSON.stringify({ level: 'error', requestId, path: url.pathname, type: error?.name || 'Error', message: String(error?.message || 'Unknown error').replaceAll(env.OPENAI_API_KEY || '[unset]', '[redacted]').slice(0, 200) }))
       return json({ error: { message: '服务处理失败，请稍后重试' }, requestId }, 500)
