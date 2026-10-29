@@ -65,6 +65,7 @@ describe('Cloudflare shared service', () => {
     const [url, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('api.openai.com'))
     expect(url).toBe('https://api.openai.com/v1/images/generations')
     expect(init.headers.get('Authorization')).toBe(`Bearer ${env.OPENAI_API_KEY}`)
+    expect(init.redirect).toBe('manual')
     expect(JSON.parse(init.body).safety_identifier).toMatch(/^[a-f0-9]{64}$/)
     expect(await response.text()).not.toContain(env.OPENAI_API_KEY)
   })
@@ -76,6 +77,13 @@ describe('Cloudflare shared service', () => {
       const result = await worker.fetch(new Request(`${origin}/api-proxy/${path}`, { method: 'POST', headers: { ...auth, Origin: source, 'Content-Type': 'application/json' }, body: JSON.stringify({ model }) }), env)
       expect(result.status).toBe(status)
     }
+  })
+
+  it('does not follow upstream redirects with the server secret', async () => {
+    mockNetwork(() => new Response(null, { status: 302, headers: { Location: 'https://other.example' } }))
+    const result = await worker.fetch(new Request(`${origin}/api-proxy/images/generations`, { method: 'POST', headers: { ...await headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-image-2.5-sunburst' }) }), env)
+    expect(result.status).toBe(502)
+    expect(result.headers.get('Location')).toBeNull()
   })
 
   it('publishes once, lists across members, and protects image reads', async () => {

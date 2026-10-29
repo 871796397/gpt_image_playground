@@ -73,7 +73,8 @@ async function proxy(request, env, email, path) {
   else body.safety_identifier = safetyId
   const headers = new Headers({ Authorization: `Bearer ${env.OPENAI_API_KEY}` })
   if (!multipart) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers, body: multipart ? body : JSON.stringify(body), redirect: 'error' })
+  const response = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers, body: multipart ? body : JSON.stringify(body), signal: request.signal, redirect: 'manual' })
+  if (response.status >= 300 && response.status < 400) throw new ApiError(502, '官方 API 返回了异常重定向，请联系管理员')
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
     const code = error.error?.code
