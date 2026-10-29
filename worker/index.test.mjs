@@ -54,7 +54,9 @@ describe('Cloudflare shared service', () => {
       expect((await worker.fetch(new Request(`${origin}/api/health`, { headers: await headers(claims) }), env)).status).toBe(401)
     }
     const forged = await headers()
-    forged['Cf-Access-Jwt-Assertion'] = forged['Cf-Access-Jwt-Assertion'].replace(/.$/, 'X')
+    const parts = forged['Cf-Access-Jwt-Assertion'].split('.')
+    parts[2] = (parts[2][0] === 'A' ? 'B' : 'A') + parts[2].slice(1)
+    forged['Cf-Access-Jwt-Assertion'] = parts.join('.')
     expect((await worker.fetch(new Request(`${origin}/api/health`, { headers: forged }), env)).status).toBe(401)
   })
 
