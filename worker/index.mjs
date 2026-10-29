@@ -73,7 +73,7 @@ async function proxy(request, env, email, path) {
   else body.safety_identifier = safetyId
   const headers = new Headers({ Authorization: `Bearer ${env.OPENAI_API_KEY}` })
   if (!multipart) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers, body: multipart ? body : JSON.stringify(body), signal: request.signal, redirect: 'error' })
+  const response = await fetch(`https://api.openai.com/v1/${path}`, { method: 'POST', headers, body: multipart ? body : JSON.stringify(body), redirect: 'error' })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
     const code = error.error?.code
@@ -140,7 +140,7 @@ export default {
     } catch (error) {
       if (error instanceof ApiError) return json({ error: { message: error.message }, requestId }, error.status)
       if (error instanceof SyntaxError || error instanceof TypeError && request.method !== 'GET' && !request.headers.get('Content-Type')) return json({ error: { message: '请求格式无效' }, requestId }, 400)
-      console.error(JSON.stringify({ level: 'error', requestId, path: url.pathname, type: error?.name || 'Error' }))
+      console.error(JSON.stringify({ level: 'error', requestId, path: url.pathname, type: error?.name || 'Error', message: String(error?.message || 'Unknown error').replaceAll(env.OPENAI_API_KEY || '[unset]', '[redacted]').slice(0, 200) }))
       return json({ error: { message: '服务处理失败，请稍后重试' }, requestId }, 500)
     }
   },
