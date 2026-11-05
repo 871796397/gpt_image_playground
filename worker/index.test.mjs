@@ -173,14 +173,14 @@ describe('Cloudflare shared service', () => {
     expect((await listing('owner@example.com')).items).toEqual([])
   })
 
-  it('publishes once, lists across members, and protects image reads', async () => {
+  it.each(['image/png', 'image/gif', 'image/svg+xml;charset=utf-8'])('publishes %s once, lists across members, and protects image reads', async (contentType) => {
     mockNetwork()
     const storage = bucket()
     const deployment = { ...env, GALLERY: storage }
     const publish = async () => {
       const form = new FormData()
       form.set('task', JSON.stringify({ id: 'local-task', createdAt: 1000, prompt: 'shared prompt', model: 'gpt-image-2.5-sunburst', author: 'forged@example.com' }))
-      form.append('images', new Blob(['PNG sample'], { type: 'image/png' }), 'output.png')
+      form.append('images', new Blob(['image sample'], { type: contentType }), 'output')
       return worker.fetch(new Request(`${origin}/api/shared-gallery`, { method: 'POST', headers: await headers(), body: form }), deployment)
     }
     const result = await publish()
@@ -192,8 +192,11 @@ describe('Cloudflare shared service', () => {
     expect(list.items[0].author).toBe('owner@example.com')
     expect(list.items[0].prompt).toBe('shared prompt')
     const image = await worker.fetch(new Request(`${origin}${list.items[0].images[0]}`, { headers: await headers({ email: 'friend@example.com' }) }), deployment)
-    expect(image.headers.get('Content-Type')).toBe('image/png')
-    expect(await image.text()).toBe('PNG sample')
+    expect(image.headers.get('Content-Type')).toBe(contentType.split(';')[0])
+    expect(image.headers.get('Content-Security-Policy')).toContain('sandbox;')
+    expect(image.headers.get('Content-Security-Policy')).not.toContain('allow-scripts')
+    expect(image.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    expect(await image.text()).toBe('image sample')
     expect((await worker.fetch(new Request(`${origin}${list.items[0].images[0]}`), deployment)).status).toBe(401)
     expect(storage.values.size).toBe(2)
   })

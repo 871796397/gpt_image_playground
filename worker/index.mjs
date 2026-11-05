@@ -112,11 +112,12 @@ async function gallery(request, env, email, url) {
   if (url.pathname.startsWith('/api/shared-gallery/image/')) {
     if (request.method !== 'GET') throw new ApiError(405, '不支持此操作')
     const key = decodeURIComponent(url.pathname.slice('/api/shared-gallery/image/'.length))
-    if (!/^images\/[a-f0-9]{64}\/\d+\.(png|jpeg|webp)$/.test(key)) throw new ApiError(404, '图片不存在')
+    if (!/^images\/[a-f0-9]{64}\/\d+\.(png|jpeg|webp|gif|svg)$/.test(key)) throw new ApiError(404, '图片不存在')
     if (await env.GALLERY.get(`deleted/${key.split('/')[1]}.json`)) throw new ApiError(404, '图片不存在')
     const object = await env.GALLERY.get(key)
     if (!object) throw new ApiError(404, '图片不存在')
-    return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata.contentType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } })
+    // SVG 在新标签页中也保持隔离，只显示图片内容。
+    return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata.contentType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'" } })
   }
   if (request.method === 'DELETE' && url.pathname.startsWith('/api/shared-gallery/')) {
     const id = url.pathname.slice('/api/shared-gallery/'.length)
@@ -149,15 +150,16 @@ async function gallery(request, env, email, url) {
   try { task = JSON.parse(form.get('task')) } catch { throw new ApiError(400, '作品信息无效') }
   if (!task || typeof task.id !== 'string' || task.id.length > 200 || !task.id || typeof task.prompt !== 'string' || task.prompt.length > 32000 || !Number.isSafeInteger(task.createdAt) || task.createdAt < 0 || task.createdAt > Date.now() + 60000) throw new ApiError(400, '作品信息无效')
   const files = form.getAll('images')
-  if (!files.length || files.length > 10 || files.some((f) => typeof f === 'string' || !['image/png', 'image/jpeg', 'image/webp'].includes(f.type) || f.size > 20 * 1024 * 1024 || !f.size)) throw new ApiError(400, '只支持 PNG、JPEG、WebP 图片，每张最多 20MB，单次最多 10 张')
+  if (!files.length || files.length > 10 || files.some((f) => typeof f === 'string' || !['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'].includes(f.type.split(';')[0]) || f.size > 20 * 1024 * 1024 || !f.size)) throw new ApiError(400, '只支持 PNG、JPEG、WebP、GIF、SVG 图片，每张最多 20MB，单次最多 10 张')
   if (files.reduce((sum, f) => sum + f.size, 0) > 50 * 1024 * 1024) throw new ApiError(413, '作品总大小不能超过 50MB')
   const id = await digest(`${email}:${task.id}`)
   if (await env.GALLERY.get(`deleted/${id}.json`)) throw new ApiError(410, '作品已从共享图库删除', 'shared_gallery_deleted')
   const key = taskKey(task.createdAt, id)
   const images = await Promise.all(files.map(async (file, idx) => {
-    const type = file.type.split('/')[1]
+    const contentType = file.type.split(';')[0]
+    const type = contentType === 'image/svg+xml' ? 'svg' : contentType.split('/')[1]
     const imageKey = `images/${id}/${idx}.${type}`
-    await env.GALLERY.put(imageKey, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } })
+    await env.GALLERY.put(imageKey, await file.arrayBuffer(), { httpMetadata: { contentType } })
     return `/api/shared-gallery/image/${encodeURIComponent(imageKey)}`
   }))
   const item = { id, prompt: task.prompt, model: String(task.model || '').slice(0, 100), createdAt: task.createdAt, author: email, images }
