@@ -131,4 +131,12 @@ describe('parameter compatibility', () => {
 
     expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'max' }, settings).quality).toBe('high')
   })
+
+  it.each(['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare'])('uses documented standard quality settings for %s after preset migration', (model) => {
+    const profile = createDefaultOpenAIProfile({ model })
+    const settings = normalizeSettings({ ...DEFAULT_SETTINGS, profiles: [profile] })
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'auto' }, settings).quality).toBe('auto')
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'xhigh' }, settings).quality).toBe('high')
+    expect(normalizeParamsForSettings({ ...DEFAULT_PARAMS, quality: 'max' }, settings).quality).toBe('high')
+  })
 })

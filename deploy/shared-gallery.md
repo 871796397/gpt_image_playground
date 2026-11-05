@@ -15,7 +15,7 @@
 
 ## 行为与范围
 
-- 图片生成、编辑和 Agent 调用都经同源代理访问固定的官方 API，不接收客户端提供的上游地址或 Key。允许图像模型为 GPT Image 2.5 Sunburst、Flare 和 GPT Image 2；Agent 文本模型为 GPT 6.1 Sol。
+- 图片生成、编辑和 Agent 调用都经同源代理访问固定的官方 API，不接收客户端提供的上游地址或 Key。预置默认图像模型为 GPT Image 2.6 Sunburst，可选择 2.6 Flare；后端兼容旧任务使用的 2.5 Sunburst、Flare 和 GPT Image 2。Agent 文本模型为 GPT 6.1 Sol。
 - API 对 Access JWT 校验 RS256 签名、issuer、audience、有效期。作者取自已校验的邮箱，客户端无法指定作者。写请求要求同源 Origin。
 - 新完成的画廊和 Agent 作品自动上传，历史本机作品不主动公开。同步失败保留本机记录及待同步任务 ID，可在共享图库重试，重新打开页面也会恢复待同步队列。
 - 成员可共同查看提示词、作者、生成时间和图片并下载。个人收藏、参考图、对话和 API 设置不上传；删除本地作品不会删除共享副本。

@@ -73,6 +73,7 @@ describe('Cloudflare shared service', () => {
     expect(body.traceCountry).toBe('US')
     expect(body.traceColo).toBe('IAD')
     expect(network.mock.calls.every(([url]) => !String(url).includes('/images/'))).toBe(true)
+    expect(network.mock.calls.some(([url]) => String(url) === 'https://api.openai.com/v1/models/gpt-image-2.6-sunburst')).toBe(true)
     const diagnostic = JSON.stringify([body, info.mock.calls])
     expect(diagnostic).not.toContain(env.OPENAI_API_KEY)
     expect(diagnostic).not.toContain('192.0.2.1')
@@ -98,6 +99,23 @@ describe('Cloudflare shared service', () => {
     for (const [path, model, source, status] of [['images/generations', 'unapproved', origin, 400], ['https://attacker.example', 'gpt-image-2.5-sunburst', origin, 404], ['images/generations', 'gpt-image-2.5-sunburst', 'https://evil.example', 403]]) {
       const result = await worker.fetch(new Request(`${origin}/api-proxy/${path}`, { method: 'POST', headers: { ...auth, Origin: source, 'Content-Type': 'application/json' }, body: JSON.stringify({ model }) }), env)
       expect(result.status).toBe(status)
+    }
+  })
+
+  it.each(['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare'])('allows %s for generation, editing and Agent image tools', async (model) => {
+    const network = mockNetwork()
+    for (const path of ['images/generations', 'images/edits', 'responses']) {
+      const form = new FormData()
+      form.set('model', model)
+      form.set('prompt', 'test')
+      form.append('image', new Blob(['image'], { type: 'image/png' }), 'input.png')
+      const input = path === 'responses' ? { model: 'gpt-6.1-sol', input: 'test', tools: [{ type: 'image_generation', model }] } : { model, prompt: 'test' }
+      const result = await worker.fetch(new Request(`${origin}/api-proxy/${path}`, { method: 'POST', headers: { ...await headers(), ...(path === 'images/edits' ? {} : { 'Content-Type': 'application/json' }) }, body: path === 'images/edits' ? form : JSON.stringify(input) }), env)
+      expect(result.status).toBe(200)
+      const [url, init] = network.mock.calls.at(-1)
+      expect(url).toBe(`https://api.openai.com/v1/${path}`)
+      if (path === 'images/edits') expect(init.body.get('model')).toBe(model)
+      else expect(JSON.parse(init.body)[path === 'responses' ? 'tools' : 'model']).toEqual(path === 'responses' ? [{ type: 'image_generation', model }] : model)
     }
   })
 

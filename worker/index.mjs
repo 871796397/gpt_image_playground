@@ -1,5 +1,5 @@
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } })
-const imageModels = new Set(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2'])
+const imageModels = new Set(['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2'])
 let certCache
 
 class ApiError extends Error {
@@ -186,7 +186,7 @@ export default {
         if (request.method !== 'GET') throw new ApiError(405, '不支持此操作')
         if (!env.OPENAI_API_KEY) throw new ApiError(503, '管理员尚未配置生图服务')
         const [upstream, trace] = await Promise.all([
-          fetch('https://api.openai.com/v1/models/gpt-image-2.5-sunburst', { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, redirect: 'manual', signal: AbortSignal.timeout(10000) }),
+          fetch('https://api.openai.com/v1/models/gpt-image-2.6-sunburst', { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, redirect: 'manual', signal: AbortSignal.timeout(10000) }),
           fetch('https://www.cloudflare.com/cdn-cgi/trace', { redirect: 'manual', signal: AbortSignal.timeout(10000) }).then((r) => r.text()).catch(() => ''),
         ])
         const result = await upstream.json().catch(() => ({}))

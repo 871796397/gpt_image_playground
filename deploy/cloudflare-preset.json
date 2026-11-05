@@ -6,7 +6,7 @@
       "description": "登录成员共用官方生图服务，无需填写 Key。新生成作品会自动同步到共享图库，供成员查看。",
       "provider": "openai",
       "baseUrl": "https://api.openai.com/v1",
-      "model": "gpt-image-2.5-sunburst, gpt-image-2.5-flare",
+      "model": "gpt-image-2.6-sunburst, gpt-image-2.6-flare",
       "apiMode": "images",
       "apiProxy": true,
       "isDefault": true
@@ -17,7 +17,7 @@
       "provider": "openai",
       "baseUrl": "https://api.openai.com/v1",
       "model": "gpt-6.1-sol",
-      "imageGenerationModel": "gpt-image-2.5-sunburst",
+      "imageGenerationModel": "gpt-image-2.6-sunburst",
       "apiMode": "responses",
       "apiProxy": true
     }
