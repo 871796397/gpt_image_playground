@@ -15,7 +15,7 @@ export const ZIP_DOWNLOAD_ROUTE_VALUES = [
 ] as const
 export type ZipDownloadRoute = typeof ZIP_DOWNLOAD_ROUTE_VALUES[number]
 export const DEFAULT_ZIP_DOWNLOAD_ROUTES: ZipDownloadRoute[] = ['task-selection', 'favorite-collection-selection']
-export type BuiltInApiProvider = 'openai' | 'sb2api-async' | 'fal'
+export type BuiltInApiProvider = 'openai' | 'google' | 'xai' | 'sb2api-async' | 'fal'
 export type ApiProvider = BuiltInApiProvider | string
 export type CustomProviderTemplate = 'http-image'
 export const DEFAULT_STREAM_PARTIAL_IMAGES = 1
@@ -68,6 +68,13 @@ export interface CustomProviderDefinition {
   submit: CustomProviderSubmitMapping
   editSubmit?: CustomProviderSubmitMapping
   poll?: CustomProviderPollMapping
+  /** 按顺序匹配模型 ID，支持 * 通配符；匹配后使用整套接口映射 */
+  modelOverrides?: Array<{
+    models: string[]
+    submit: CustomProviderSubmitMapping
+    editSubmit?: CustomProviderSubmitMapping
+    poll?: CustomProviderPollMapping
+  }>
 }
 
 export interface ApiProfile {
@@ -161,6 +168,7 @@ export interface AppSettings {
   saveTasksToActiveFavoriteCollection: boolean
   retryMode: RetryMode
   allowPromptRewrite: boolean
+  imagePromptHints: boolean
   taskCompletionNotification: boolean
   /** 启动时检查 GitHub 上的新版本 */
   autoCheckUpdate: boolean
@@ -206,8 +214,23 @@ export const IMAGE_COMPLEXITIES = ['auto', 'low', 'medium', 'high'] as const
 export const GIF_FRAME_COUNT_RANGE = { min: 2, max: 16 }
 export const GIF_FRAME_DURATION_RANGE = { min: 20, max: 2000 }
 
+/** 参数面板中不可选的项及原因，undefined 表示可选 */
+export interface ParamDisabledReasons {
+  complexity?: string
+  gif?: string
+  svg?: string
+  autoQuality?: string
+  extendedQuality?: string
+  autoSize?: string
+}
+
 export interface TaskParams {
   size: string
+  aspect_ratio?: string
+  resolution?: string
+  google_search?: boolean
+  image_search?: boolean
+  thinking_level?: 'auto' | 'minimal' | 'low' | 'medium' | 'high'
   quality: 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   /** auto 表示不发送，由模型使用默认值 */
   complexity: typeof IMAGE_COMPLEXITIES[number]
@@ -216,9 +239,9 @@ export interface TaskParams {
   moderation: 'auto' | 'low'
   n: number
   transparent_output: boolean
-  /** 仅 GIF 输出；null 表示使用接口默认值 */
-  frame_count: number | null
-  frame_duration_ms: number | null
+  /** 仅 GIF 输出 */
+  frame_count: number
+  frame_duration_ms: number
 }
 
 export const DEFAULT_PARAMS: TaskParams = {
@@ -230,8 +253,8 @@ export const DEFAULT_PARAMS: TaskParams = {
   moderation: 'auto',
   n: 1,
   transparent_output: false,
-  frame_count: null,
-  frame_duration_ms: null,
+  frame_count: 9,
+  frame_duration_ms: 200,
 }
 
 // ===== 输入图片（UI 层面） =====
@@ -270,10 +293,20 @@ export interface AgentInputDraft {
 
 export type TaskStatus = 'running' | 'done' | 'error'
 
+export interface ImageSearchGrounding {
+  renderedContent?: string
+  sources: Array<{ uri: string; title: string; imageUri?: string; domain?: string }>
+}
+
 export interface TaskRecord {
+  searchGrounding?: ImageSearchGrounding[]
+  /** 请求中附加的图像生成和搜索提示词 */
+  promptHints?: { prefix: string; suffix: string }
   id: string
   prompt: string
   params: TaskParams
+  /** 请求配置支持的可选参数，用于展示默认值 */
+  paramSupport?: { thinking: boolean; complexity: boolean }
   /** 生成时使用的 Provider 类型 */
   apiProvider?: ApiProvider
   /** 生成时使用的 API 配置 ID */
@@ -577,4 +610,18 @@ export interface ExportData {
     height?: number
     thumbnailVersion?: number
   }>
+}
+
+// ===== Skill（仅客户端） =====
+
+/** 对应 Rust `src-tauri/src/cli/skill.rs` 的 `SkillTarget`：`~/.claude/skills` 或 `~/.agents/skills` */
+export type SkillTarget = 'claude' | 'agents'
+/** 对应 Rust `State`：找不到用户文件夹、未安装、已安装、已安装但与当前版本不同、同名文件夹不是本应用的 Skill */
+export type SkillState = 'notFound' | 'absent' | 'added' | 'outdated' | 'invalid'
+
+export interface SkillInfo {
+  /** 随安装包附带的 Skill 文件夹 */
+  skillDir: string
+  /** `path` 为安装后的 Skill 文件夹 */
+  skills: { id: SkillTarget; path: string; state: SkillState }[]
 }

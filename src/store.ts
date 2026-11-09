@@ -23,7 +23,7 @@ import type {
   StoredImageThumbnail,
 } from './types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getAgentImageApiProfile, getAgentTextApiProfile, getCustomProviderDefinition, mergeImportedSettings, mergePresetImportedSettings, normalizeSettings, resolveApiProfileModel, splitModelList, validateApiProfile } from './lib/apiProfiles'
+import { DEFAULT_SETTINGS, createSettingsForApiProfile, getActiveApiProfile, getAgentImageApiProfile, getAgentTextApiProfile, getCustomProviderDefinition, mergeImportedSettings, mergePresetImportedSettings, normalizeSettings, resolveApiProfileModel, splitModelList, validateApiProfile } from './lib/apiProfiles'
 import { enforcePresetConfigPolicy, getPresetConfig, getPresetProfileIds, getPresetProviderIds, isPresetConfigDeletionPrevented, isPresetConfigOnlyEnabled, isPresetConfigParamsLocked, isPresetProfile, isPresetProviderDeletionPrevented } from './lib/presetConfig'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { getTaskPromptText, remapImageMentionsForOrder, replaceImageMentionsForApi, stripImageMentionMarkers } from './lib/promptImageMentions'
@@ -55,11 +55,12 @@ import { showBrowserNotification } from './lib/browserNotification'
 import { IMAGE_FETCH_CORS_HINT, isHttpUrl } from './lib/imageApiShared'
 import { getFalErrorMessage, getFalQueuedImageResult } from './lib/falAiImageApi'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
+import { OPENAI_IMAGE_TASK_PROVIDER, resolveCustomProviderModel } from './lib/imageProviderMappings'
 import { toApiInputImageDataUrl, validateMaskMatchesImage } from './lib/canvasImage'
 import { persistTaskInputImages, toReferenceImage } from './lib/inputImages'
 import { orderInputImagesForMask } from './lib/mask'
-import { getChangedParams, normalizeParamsForSettings, supportsTransparentOutput } from './lib/paramCompatibility'
-import { isVectorOrAnimatedFormat } from './lib/imageModels'
+import { getChangedParams, getTaskParamSupport, normalizeParamsForSettings, supportsTransparentOutput } from './lib/paramCompatibility'
+import { getImageModelFamily, isVectorOrAnimatedFormat } from './lib/imageModels'
 import { runWithConcurrency, splitBatchPrompts } from './lib/batchPrompts'
 import { createTransparentOutputMeta, getTransparentRequestParams, removeKeyedBackgroundFromDataUrl } from './lib/transparentImage'
 import { blobToDataUrl, fileToDataUrl } from './lib/dataUrl'
@@ -428,7 +429,9 @@ interface AppState {
   lightboxImageList: string[]
   /** 预览参考图时对应的提示词，按图片在列表中的位置取其评论；为空时不显示评论 */
   lightboxCommentPrompt: string | null
-  setLightboxImageId: (id: string | null, list?: string[], commentPrompt?: string | null) => void
+  /** 预览参考图时各图片对应的 markup 标注层 image store id；同一参考图在不同任务中的标注不同，需随预览传入 */
+  lightboxMarkupIds: Record<string, string | undefined>
+  setLightboxImageId: (id: string | null, list?: string[], commentPrompt?: string | null, markupIds?: Record<string, string | undefined>) => void
   /** 画板；baseImageSrc 为画布底图，replaceImageId 为完成后要替换的参考图 */
   sketchBoard: SketchBoardRequest | null
   setSketchBoard: (board: SketchBoardRequest | null) => void
@@ -1073,12 +1076,14 @@ export const useStore = create<AppState>()(
       lightboxImageId: null,
       lightboxImageList: [],
       lightboxCommentPrompt: null,
-      setLightboxImageId: (lightboxImageId, list, commentPrompt = null) => {
+      lightboxMarkupIds: {},
+      setLightboxImageId: (lightboxImageId, list, commentPrompt = null, markupIds = {}) => {
         if (lightboxImageId) dismissAllTooltips()
         set({
           lightboxImageId,
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
           lightboxCommentPrompt: lightboxImageId ? commentPrompt : null,
+          lightboxMarkupIds: lightboxImageId ? markupIds : {},
         })
       },
       sketchBoard: null,
@@ -1175,6 +1180,7 @@ export const useStore = create<AppState>()(
           lightboxImageId: null,
           lightboxImageList: [],
           lightboxCommentPrompt: null,
+          lightboxMarkupIds: {},
           sketchBoard: null,
           favoritePickerTaskIds: null,
           isManageCollectionsModalOpen: false,
@@ -1248,12 +1254,14 @@ export function getCodexCliPromptKey(settings: AppSettings): string {
 }
 
 function isRunningOpenAITask(task: TaskRecord) {
-  return task.status === 'running' && (task.apiProvider ?? 'openai') !== 'fal'
+  return task.status === 'running' && (task.apiProvider ?? 'openai') !== 'fal' && !task.customTaskId
 }
 
-function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasInputImages: boolean) {
-  const customProvider = getCustomProviderDefinition(settings, provider)
-  if (!customProvider?.poll) return false
+function isAsyncCustomProviderTask(settings: AppSettings, profile: ApiProfile, hasInputImages: boolean) {
+  const definition = getCustomProviderDefinition(settings, profile.provider)
+  if (!definition) return false
+  const customProvider = resolveCustomProviderModel(definition, profile.model)
+  if (!customProvider.poll) return false
   const submitMapping = hasInputImages && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
   return Boolean(submitMapping.taskIdPath)
 }
@@ -1295,11 +1303,13 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number, profile?
 function usesConcurrentImageRequests(settings: AppSettings, profile: ApiProfile, params: TaskParams, hasInputImages: boolean) {
   const n = params.n > 0 ? params.n : 1
   if (n <= 1) return false
+  if (profile.provider === 'google') return true
+  if (getImageModelFamily(profile)) return false
   if (profile.provider === 'openai') {
     if (profile.apiMode === 'responses') return true
     return profile.apiMode === 'images' && (profile.codexCli || params.output_format === 'svg' || (profile.streamImages && params.output_format !== 'gif'))
   }
-  return profile.provider !== 'fal' && (profile.codexCli || params.output_format === 'svg') && !isAsyncCustomProviderTask(settings, profile.provider, hasInputImages)
+  return profile.provider !== 'fal' && (profile.codexCli || params.output_format === 'svg') && !isAsyncCustomProviderTask(settings, profile, hasInputImages)
 }
 
 export function taskHasOutputErrors(task: Pick<TaskRecord, 'outputErrors'>) {
@@ -1351,7 +1361,7 @@ function getFalRecoveryProfile(settings: AppSettings, task: TaskRecord) {
 
 function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord) {
   const taskProfile = getTaskApiProfile(settings, task)
-  if (taskProfile && taskProfile.provider === task.apiProvider && taskProfile.provider !== 'openai' && taskProfile.provider !== 'fal') return taskProfile
+  if (taskProfile && taskProfile.provider === task.apiProvider && taskProfile.provider !== 'fal') return { ...taskProfile, model: task.apiModel || taskProfile.model }
   return null
 }
 
@@ -1360,23 +1370,7 @@ export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ApiP
   if (!task.apiProfileId) return null
   const profile = normalized.profiles.find((item) => item.id === task.apiProfileId)
   // 任务记录的模型仍在配置的模型列表中时，沿用任务提交时的模型
-  return profile ? resolveApiProfileModel(profile, task.apiModel) : null
-}
-
-function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile): AppSettings {
-  const normalized = normalizeSettings(settings)
-  return normalizeSettings({
-    ...normalized,
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
-    model: profile.model,
-    timeout: profile.timeout,
-    apiMode: profile.apiMode,
-    codexCli: profile.codexCli,
-    apiProxy: profile.apiProxy,
-    profiles: normalized.profiles.map((item) => item.id === profile.id ? profile : item),
-    activeProfileId: profile.id,
-  })
+  return profile ? resolveApiProfileModel(profile, task.apiModel, getCustomProviderDefinition(normalized, profile.provider)) : null
 }
 
 function getAgentProfileValidationError(settings: AppSettings): { profile: ApiProfile | null; message: string } | null {
@@ -1401,7 +1395,7 @@ function getAgentProfileValidationError(settings: AppSettings): { profile: ApiPr
 function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null, model: string | null): ApiProfile | null {
   if (!profileId) return null
   const profile = normalizeSettings(settings).profiles.find((item) => item.id === profileId)
-  return profile ? resolveApiProfileModel(profile, model ?? undefined) : null
+  return profile ? resolveApiProfileModel(profile, model ?? undefined, getCustomProviderDefinition(settings, profile.provider)) : null
 }
 
 function getTaskApiProfileName(task: TaskRecord) {
@@ -1968,6 +1962,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
       id: genId(),
       prompt: taskPrompt,
       params: taskParams,
+      paramSupport: getTaskParamSupport(requestSettings, activeProfile),
       apiProvider: activeProfile.provider,
       apiProfileId: activeProfile.id,
       apiProfileName: activeProfile.name,
@@ -2984,6 +2979,7 @@ async function executeAgentRound(
         id: genId(),
         prompt: taskPrompt,
         params: options.taskParams ?? { ...imageParams, n: 1 },
+        paramSupport: getTaskParamSupport(imageRequestSettings, imageProfile),
         apiProvider: imageProfile.provider,
         apiProfileId: imageProfile.id,
         apiProfileName: imageProfile.name,
@@ -3034,6 +3030,7 @@ async function executeAgentRound(
         outputImages: [stored.id],
         actualParams,
         actualParamsByImage: { [stored.id]: actualParams },
+        searchGrounding: image.searchGrounding,
         revisedPromptByImage: image.revisedPrompt ? { [stored.id]: image.revisedPrompt } : undefined,
         rawResponsePayload,
         ...createTaskDonePatch(latestBeforeUpdate, Date.now()),
@@ -3207,6 +3204,7 @@ async function executeAgentRound(
         inputImageDataUrls: opts.referenceImageDataUrls,
         inputImageUrls: opts.referenceImageSourceUrls,
         skipCodexCliSizePrompt: true,
+        onPromptHintsPrepared: (promptHints) => updateTaskInStore(opts.taskId, { promptHints }),
         onPartialImage: opts.onPartialImage
           ? (partial) => {
               void opts.onPartialImage?.({ image: partial.image, partialImageIndex: partial.partialImageIndex ?? partial.requestIndex })
@@ -3233,6 +3231,7 @@ async function executeAgentRound(
           dataUrl,
           actualParams: result.actualParamsList?.[0] ?? result.actualParams,
           revisedPrompt: result.revisedPrompts?.[0] ?? opts.prompt,
+          searchGrounding: result.searchGrounding,
         } satisfies AgentApiResultImage : null,
         error: result.failedRequests?.[0]?.error ?? (dataUrl ? null : '接口未返回图片数据'),
         rawResponsePayload: JSON.stringify({
@@ -3578,6 +3577,7 @@ async function executeAgentRound(
           id: genId(),
           prompt: image.revisedPrompt ?? round?.prompt ?? userMessage.content,
           params: imageParams,
+          paramSupport: getTaskParamSupport(imageRequestSettings, imageProfile),
           apiProvider: imageProfile.provider,
           apiProfileId: imageProfile.id,
           apiProfileName: imageProfile.name,
@@ -3897,7 +3897,7 @@ async function executeTask(taskId: string) {
 
   if (
     taskProvider !== 'fal' &&
-    !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0) &&
+    !isAsyncCustomProviderTask(requestSettings, activeProfile, task.inputImageIds.length > 0) &&
     !usesConcurrentImageRequests(requestSettings, activeProfile, task.params, task.inputImageIds.length > 0)
   ) {
     scheduleOpenAIWatchdog(taskId, activeProfile.timeout, activeProfile)
@@ -3933,6 +3933,10 @@ async function executeTask(taskId: string) {
       maskDataUrl,
       markupDataUrl,
       skipCodexCliSizePrompt: task.sourceMode === 'agent',
+      onPromptHintsPrepared: (promptHints) => {
+        if (taskExecutions.get(taskId) !== execution) return
+        updateTaskInStore(taskId, { promptHints })
+      },
       onFalRequestEnqueued: (request) => {
         if (taskExecutions.get(taskId) !== execution) return
         falRequestInfo = request
@@ -4007,6 +4011,7 @@ async function executeTask(taskId: string) {
       outputErrors: result.failedRequests?.length ? result.failedRequests : undefined,
       streamPartialImageIds: undefined,
       rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
+      searchGrounding: result.searchGrounding,
       actualParams,
       actualParamsByImage,
       revisedPromptByImage,
@@ -4223,6 +4228,7 @@ export async function retryTask(task: TaskRecord) {
     id: taskId,
     prompt: source.prompt,
     params: taskParams,
+    paramSupport: getTaskParamSupport(settings, activeProfile),
     apiProvider: activeProfile.provider,
     apiProfileId: activeProfile.id,
     apiProfileName: activeProfile.name,
@@ -4241,6 +4247,8 @@ export async function retryTask(task: TaskRecord) {
     actualParamsByImage: undefined,
     revisedPromptByImage: undefined,
     rawImageUrls: undefined,
+    searchGrounding: undefined,
+    promptHints: undefined,
     rawResponsePayload: undefined,
     streamPartialImageIds: undefined,
     falRequestId: undefined,
@@ -4706,7 +4714,8 @@ async function recoverCustomTask(taskId: string) {
   if (!task || !task.customTaskId || task.status === 'done') return
 
   const profile = getCustomRecoveryProfile(settings, task)
-  const customProvider = profile ? getCustomProviderDefinition(settings, profile.provider) : null
+  const definition = profile ? getCustomProviderDefinition(settings, profile.provider) ?? (profile.provider === 'openai' || profile.provider === 'xai' ? OPENAI_IMAGE_TASK_PROVIDER : null) : null
+  const customProvider = profile && definition ? resolveCustomProviderModel(definition, profile.model) : null
   if (!profile || !customProvider?.poll) {
     scheduleCustomRecovery(taskId)
     return

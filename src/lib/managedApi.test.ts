@@ -11,6 +11,8 @@ describe('server managed API profiles', () => {
     expect(validateApiProfile(profile)).toBeNull()
     expect(validateApiProfile({ ...profile, apiProxy: false })).toBe('缺少 API Key')
     expect(validateApiProfile({ ...profile, provider: 'fal' })).toBe('缺少 API Key')
+    expect(validateApiProfile({ ...profile, provider: 'google' })).toBe('缺少 API Key')
+    expect(validateApiProfile({ ...profile, provider: 'xai' })).toBe('缺少 API Key')
   })
 
   it('preserves the existing requirement for personal deployments', async () => {

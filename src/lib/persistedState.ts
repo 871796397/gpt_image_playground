@@ -74,14 +74,19 @@ function normalizeStringArray(value: unknown, fallback: string[]) {
   return value.filter((item): item is string => typeof item === 'string')
 }
 
-function normalizeGifParam(value: unknown, range: { min: number; max: number }) {
-  return typeof value === 'number' && Number.isInteger(value) && value >= range.min && value <= range.max ? value : null
+function normalizeGifParam(value: unknown, range: { min: number; max: number }, fallback: number) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= range.min && value <= range.max ? value : fallback
 }
 
 function normalizeParams(value: unknown, fallback: TaskParams): TaskParams {
   if (!isRecord(value)) return fallback
   return {
     size: typeof value.size === 'string' ? value.size : fallback.size,
+    aspect_ratio: typeof value.aspect_ratio === 'string' ? value.aspect_ratio : fallback.aspect_ratio,
+    resolution: typeof value.resolution === 'string' ? value.resolution : fallback.resolution,
+    google_search: typeof value.google_search === 'boolean' ? value.google_search : fallback.google_search,
+    image_search: typeof value.image_search === 'boolean' ? value.image_search : fallback.image_search,
+    thinking_level: value.thinking_level === 'auto' || value.thinking_level === 'minimal' || value.thinking_level === 'low' || value.thinking_level === 'medium' || value.thinking_level === 'high' ? value.thinking_level : fallback.thinking_level,
     quality: value.quality === 'auto' || value.quality === 'low' || value.quality === 'medium' || value.quality === 'high' || value.quality === 'xhigh' || value.quality === 'max'
       ? value.quality
       : fallback.quality,
@@ -97,8 +102,8 @@ function normalizeParams(value: unknown, fallback: TaskParams): TaskParams {
     moderation: value.moderation === 'auto' || value.moderation === 'low' ? value.moderation : fallback.moderation,
     n: typeof value.n === 'number' && Number.isFinite(value.n) ? value.n : fallback.n,
     transparent_output: typeof value.transparent_output === 'boolean' ? value.transparent_output : fallback.transparent_output,
-    frame_count: normalizeGifParam(value.frame_count, GIF_FRAME_COUNT_RANGE),
-    frame_duration_ms: normalizeGifParam(value.frame_duration_ms, GIF_FRAME_DURATION_RANGE),
+    frame_count: normalizeGifParam(value.frame_count, GIF_FRAME_COUNT_RANGE, fallback.frame_count),
+    frame_duration_ms: normalizeGifParam(value.frame_duration_ms, GIF_FRAME_DURATION_RANGE, fallback.frame_duration_ms),
   }
 }
 

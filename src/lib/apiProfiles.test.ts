@@ -1663,7 +1663,7 @@ describe('custom providers', () => {
       ],
     })
 
-    expect(settings.providerOrder).toEqual(['fal', 'openai', 'sb2api-async', 'custom-alpha', 'custom-beta'])
+    expect(settings.providerOrder).toEqual(['fal', 'openai', 'google', 'xai', 'sb2api-async', 'custom-alpha', 'custom-beta'])
   })
 
   it('keeps active custom providers in Images API mode when legacy apiMode is responses', () => {
@@ -1721,6 +1721,12 @@ describe('custom providers', () => {
     expect(DEFAULT_SETTINGS.allowPromptRewrite).toBe(false)
     expect(normalizeSettings({}).allowPromptRewrite).toBe(false)
     expect(normalizeSettings({ allowPromptRewrite: true }).allowPromptRewrite).toBe(true)
+  })
+
+  it('defaults imagePromptHints to true and preserves explicit false', () => {
+    expect(DEFAULT_SETTINGS.imagePromptHints).toBe(true)
+    expect(normalizeSettings({}).imagePromptHints).toBe(true)
+    expect(normalizeSettings({ imagePromptHints: false }).imagePromptHints).toBe(false)
   })
 
   it('restores OpenAI-compatible URL after switching through fal.ai', () => {

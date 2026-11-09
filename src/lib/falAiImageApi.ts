@@ -41,7 +41,7 @@ async function mapFalImageSize(size: string): Promise<{ width: number; height: n
 }
 
 function mapFalQuality(quality: TaskParams['quality'], model: string): 'low' | 'medium' | 'high' | 'xhigh' | 'max' {
-  // fal.ai 的 2.6 端点画质只到 high
+  // fal.ai 的 2.6 端点质量只到 high
   if (isGptImage25PlusModel(model) && !isGptImage26PlusModel(model) && (quality === 'xhigh' || quality === 'max')) return quality
   return quality === 'low' || quality === 'medium' ? quality : 'high'
 }
@@ -71,10 +71,10 @@ async function createFalRequestInput(opts: CallApiOptions, profile: ApiProfile):
   if (opts.nativeTransparentBackground) input.background = 'transparent'
 
   // fal.ai 把 complexity 叫作 reasoning_effort；实测只接受 low / medium / high
-  if (opts.params.complexity && opts.params.complexity !== 'auto') input.reasoning_effort = opts.params.complexity
+  if (opts.params.complexity !== 'auto') input.reasoning_effort = opts.params.complexity
   if (opts.params.output_format === 'gif') {
-    if (opts.params.frame_count != null) input.frame_count = opts.params.frame_count
-    if (opts.params.frame_duration_ms != null) input.frame_duration_ms = opts.params.frame_duration_ms
+    input.frame_count = opts.params.frame_count
+    input.frame_duration_ms = opts.params.frame_duration_ms
   }
   // fal.ai 的 SVG 暂不开放：按文档请求会返回 Invalid request，能成功的写法依赖未公开的 provider_options，
   // 可能是意外暴露的内部参数，编写模型的计费也无法确认。fal.ai 按文档可用后恢复以下代码和 paramCompatibility 中的处理。

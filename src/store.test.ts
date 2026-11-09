@@ -335,6 +335,27 @@ describe('task retry', () => {
     })
   })
 
+  it('persists prompt hints and clears them when retrying without hints', async () => {
+    const hints = { prefix: '生成图像：', suffix: '请使用 google:search 搜索相关信息。' }
+    useStore.setState({ appMode: 'gallery', prompt: 'example', inputImages: [], params: { ...DEFAULT_PARAMS } })
+    vi.mocked(callImageApi).mockImplementationOnce(async (opts) => {
+      opts.onPromptHintsPrepared?.(hints)
+      throw new Error('example failure')
+    })
+    await submitTask()
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).toBe('error'))
+    expect((await getAllTasks())[0].promptHints).toEqual(hints)
+    useStore.setState({ settings: { ...useStore.getState().settings, imagePromptHints: false } })
+    expect(useStore.getState().tasks[0].promptHints).toEqual(hints)
+    vi.mocked(callImageApi).mockImplementationOnce(async (opts) => {
+      opts.onPromptHintsPrepared?.(undefined)
+      return { images: [] }
+    })
+    await retryTask(useStore.getState().tasks[0])
+    await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).not.toBe('running'))
+    expect((await getAllTasks())[0].promptHints).toBeUndefined()
+  })
+
   it('adds a new task created on a favorites page to the active collection', async () => {
     const collection = { id: 'collection-a', name: '收藏夹 A', createdAt: 1, updatedAt: 1 }
     const failed = task({ status: 'error', error: '上次失败' })
@@ -6067,5 +6088,27 @@ describe('privacy mode', () => {
     await vi.waitFor(() => expect(useStore.getState().tasks[0]?.status).toBe('error'))
     expect(showBrowserNotification).toHaveBeenCalledOnce()
     expect(useStore.getState().detailTaskId).toBe(useStore.getState().tasks[0].id)
+  })
+})
+
+describe('lightbox reference context', () => {
+  afterEach(() => useStore.getState().setLightboxImageId(null))
+
+  it('keeps markup and comments per task for the same image, and plain previews inherit no markup', () => {
+    const open = useStore.getState().setLightboxImageId
+    open('original', ['original'], 'comment A', { original: 'markup-a' })
+    expect(useStore.getState().lightboxMarkupIds).toEqual({ original: 'markup-a' })
+    open('original', ['original'], 'comment B', { original: 'markup-b' })
+    expect(useStore.getState().lightboxMarkupIds).toEqual({ original: 'markup-b' })
+    expect(useStore.getState().lightboxCommentPrompt).toBe('comment B')
+    open('original')
+    expect(useStore.getState().lightboxMarkupIds).toEqual({})
+    expect(useStore.getState().lightboxCommentPrompt).toBeNull()
+  })
+
+  it('clears markup context when the lightbox closes', () => {
+    useStore.getState().setLightboxImageId('original', ['original'], null, { original: 'markup' })
+    useStore.getState().setLightboxImageId(null)
+    expect(useStore.getState().lightboxMarkupIds).toEqual({})
   })
 })

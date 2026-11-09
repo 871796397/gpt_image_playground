@@ -312,8 +312,8 @@ export default function TaskCard({
 
   const qualityDisplay = getParamDisplay(task, 'quality')
   const showQuality = task.params.quality !== 'auto' || qualityDisplay.isMismatch
-  // 旧任务记录没有 complexity；接口也不回传该字段
-  const showComplexity = Boolean(task.params.complexity) && task.params.complexity !== 'auto'
+  // 接口不回传 complexity，只显示设置的值
+  const showComplexity = task.params.complexity !== 'auto'
 
   const sizeDisplay = getParamDisplay(task, 'size')
   const showSize = task.params.size !== 'auto' || sizeDisplay.isMismatch
@@ -619,6 +619,32 @@ export default function TaskCard({
                 </span>
               )}
               {/* Params: only show if not default or mismatch */}
+              {task.params.aspect_ratio && task.params.aspect_ratio !== 'auto' && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
+                  <span className="text-gray-400 dark:text-gray-500">比例</span>
+                  <span className="text-gray-600 dark:text-gray-300">{task.params.aspect_ratio}</span>
+                </span>
+              )}
+              {task.params.resolution && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
+                  <span className="text-gray-400 dark:text-gray-500">分辨率</span>
+                  <span className="text-gray-600 dark:text-gray-300">{task.params.resolution}</span>
+                </span>
+              )}
+              {task.params.thinking_level && task.params.thinking_level !== 'auto' && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
+                  <span className="text-gray-400 dark:text-gray-500">思考等级</span>
+                  <span className="text-gray-600 dark:text-gray-300">{task.params.thinking_level}</span>
+                </span>
+              )}
+              {(task.params.google_search || task.params.image_search) && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
+                  <span className="text-gray-400 dark:text-gray-500">搜索</span>
+                  <span className="text-gray-600 dark:text-gray-300">
+                    {[task.params.google_search ? 'Google Search' : null, task.params.image_search ? 'Image Search' : null].filter(Boolean).join(' · ')}
+                  </span>
+                </span>
+              )}
               {showQuality && (
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-xs flex-shrink-0">
                   <span className="text-gray-400 dark:text-gray-500">质量</span>
