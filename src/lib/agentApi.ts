@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ImageSearchGrounding, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
+import { assertInputImageLimit } from './inputImageLimits'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { applyGptImage26Params, appendStreamingFormatHint, createRequestTimeoutError, getApiErrorMessage, getResponsesImageResultBase64, maybeAppendImageToolDroppedHint, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams, PROMPT_REWRITE_GUARD_PREFIX } from './imageApiShared'
 import { getImageGenerationModel } from './imageModels'
@@ -115,16 +116,16 @@ function createImageTool(params: TaskParams, profile: ApiProfile, maskDataUrl?: 
     type: 'image_generation',
     action: 'auto',
     output_format: params.output_format,
-    moderation: params.moderation,
   }
   const imageModel = getImageGenerationModel(profile)
   if (imageModel) tool.model = imageModel
 
   if (!profile.codexCli) {
     tool.size = params.size
+    tool.quality = params.quality
+    tool.moderation = params.moderation
   }
 
-  tool.quality = params.quality
   applyGptImage26Params(tool, params, profile)
 
   if (params.output_format !== 'png' && params.output_compression != null) {
@@ -748,6 +749,7 @@ export async function callBatchImageSingle(opts: {
   onImageToolCompleted?: (image: AgentApiResultImage) => void | Promise<void>
 }): Promise<BatchImageCallResult> {
   const { profile, params, batchItemId, prompt, referenceImageDataUrls, referenceIds, allowPromptRewrite, signal, onImageToolStarted, onPartialImage, onImageToolCompleted } = opts
+  assertInputImageLimit(profile, referenceImageDataUrls.length)
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
@@ -779,18 +781,17 @@ export async function callBatchImageSingle(opts: {
       input = guardedPrompt
     }
 
-    // Build image_generation tool with current params
     const tool: Record<string, unknown> = {
       type: 'image_generation',
       action: referenceImageDataUrls.length > 0 ? 'auto' : 'generate',
       output_format: params.output_format,
-      moderation: params.moderation,
-      quality: params.quality,
     }
     const imageModel = getImageGenerationModel(profile)
     if (imageModel) tool.model = imageModel
     if (!profile.codexCli) {
       tool.size = params.size
+      tool.quality = params.quality
+      tool.moderation = params.moderation
     }
     applyGptImage26Params(tool, params, profile)
     if (params.output_format !== 'png' && params.output_compression != null) {
@@ -804,7 +805,7 @@ export async function callBatchImageSingle(opts: {
       model: profile.model,
       input,
       tools: [tool],
-      tool_choice: 'required',
+      tool_choice: profile.codexCli ? 'auto' : 'required',
     }
     if (profile.reasoningEffort) body.reasoning = { effort: profile.reasoningEffort }
     if (profile.streamImages) {

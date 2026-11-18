@@ -63,7 +63,13 @@ export default function HelpModal({ appMode, isFavoriteCollectionOverview = fals
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain mb-6 text-sm text-gray-600 dark:text-gray-300 space-y-6 custom-scrollbar pr-2">
+        <div className="flex-1 overflow-y-auto overscroll-contain mb-6 text-sm text-gray-600 dark:text-gray-300 space-y-6 custom-scrollbar pr-2 [scrollbar-gutter:stable]">
+          <section>
+            <h4 className="mb-3 text-sm font-medium text-gray-800 dark:text-gray-200">参考图</h4>
+            <p>参考图数量上限按模型和服务商确定。超限图片会保留并置灰，悬浮或长按可查看原因；提交前请移除超限图片或切换模型。</p>
+            <p className="mt-2">图片较多时可在参考图区上下滚动；移动端横向起拖可调整顺序。</p>
+            <p className="mt-2">不支持遮罩的模型或输出格式点击“编辑图片”会直接进入画板。切换后若已有遮罩，遮罩图会置灰，悬浮或长按可查看原因；预览右侧会显示“移除遮罩”，移除后恢复“编辑图片”；也可切回支持的模型或输出格式。</p>
+          </section>
           {isAgentMode ? (
             <>
               <section>
@@ -168,22 +174,18 @@ export default function HelpModal({ appMode, isFavoriteCollectionOverview = fals
               </section>
             </>
           )}
-          <section>
-            <h4 className="mb-4 text-sm font-medium text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
-              <LinkIcon className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-              导入配置链接
-            </h4>
-            <ul className="list-disc pl-4 space-y-2">
-              {isTauri ? (
-                <>
-                  <li>在浏览器或其他地方<strong className="text-blue-500 dark:text-blue-400 font-medium">复制导入链接</strong>后切回客户端，客户端会提示导入，确认后才会导入。</li>
-                  <li>点击 <code className="rounded bg-gray-100 px-1 py-0.5 text-[0.85em] text-gray-700 dark:bg-white/[0.06] dark:text-gray-200">gpt-image-playground://</code> 开头的链接可以直接唤起客户端并提示导入。</li>
-                </>
-              ) : (
-                <li>打开带有配置参数的<strong className="text-blue-500 dark:text-blue-400 font-medium">导入链接</strong>时，页面会先提示导入，确认后才会导入。</li>
-              )}
-            </ul>
-          </section>
+          {isTauri && (
+            <section>
+              <h4 className="mb-4 text-sm font-medium text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                <LinkIcon className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                导入配置链接
+              </h4>
+              <ul className="list-disc pl-4 space-y-2">
+                <li>在浏览器或其他地方<strong className="text-blue-500 dark:text-blue-400 font-medium">复制导入链接</strong>后切回客户端，客户端会提示导入，确认后才会导入。</li>
+                <li>点击 <code className="rounded bg-gray-100 px-1 py-0.5 text-[0.85em] text-gray-700 dark:bg-white/[0.06] dark:text-gray-200">gpt-image-playground://</code> 开头的链接可以直接唤起客户端并提示导入。</li>
+              </ul>
+            </section>
+          )}
         </div>
 
         <div className="pt-4 border-t border-gray-200 dark:border-white/[0.08] flex justify-center">

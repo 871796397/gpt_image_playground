@@ -1,34 +1,60 @@
-import type { ApiProfile, TaskParams } from '../types'
+import type { ApiProfile, CustomProviderImageSize, TaskParams } from '../types'
+import { getSeedreamRatioSize, normalizeSeedreamImageSize, SEEDREAM_RESOLUTIONS } from './size'
 import { getImageModelFamily, supportsGrokQuality, usesGrokSizeParams } from './imageModels'
 
-export function getImageModelOptions(profile: ApiProfile) {
+export function getImageModelOptions(profile: ApiProfile, imageSize?: CustomProviderImageSize) {
+  if (imageSize?.mode === 'aspect-ratio') return imageSize
   const family = getImageModelFamily(profile)
   const model = profile.model.toLowerCase()
   const ratios = ['auto', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
+  if (family === 'seedream') return { ratios: [...ratios, '1:2', '2:1', '1:4', '4:1', '1:8', '8:1', '1:16', '16:1'], resolutions: [...SEEDREAM_RESOLUTIONS] }
   if (family === 'grok') {
+    if (profile.provider === 'fal') return {
+      ratios: [...ratios.filter((ratio) => !['4:5', '5:4', '21:9'].includes(ratio)), '9:19.5', '19.5:9', '9:20', '20:9', '1:2', '2:1', ...(supportsGrokQuality(model) ? ['21:9', '5:2'] : [])],
+      resolutions: supportsGrokQuality(model) ? ['1K', '1.5K', '2K'] : ['1K', '2K'],
+    }
     if (usesGrokSizeParams(profile)) return { ratios: ['auto', '1:1', '16:9', '9:16', '3:2', '2:3'], resolutions: [] }
     return { ratios: [...ratios.filter((ratio) => ratio !== '4:5' && ratio !== '5:4'), '9:19.5', '19.5:9', '9:20', '20:9', '1:2', '2:1', '5:2'], resolutions: ['1K', '2K'] }
   }
-  const firstGeneration = /gemini-2\.5-|(?:^|\/)nano[-_]?banana(?:$|-(?:image|preview))/.test(model)
+  const firstGeneration = /gemini-2\.5-|(?:^|\/)nano[-_]?banana(?:$|\/|-(?:image|preview))/.test(model)
   const flashLite = /flash-lite-image/.test(model)
   const flash31 = /gemini-3\.1-.*image|nano[-_]?banana-2(?:$|[^.])/.test(model)
   return {
     ratios: firstGeneration || flashLite || /gemini-3-pro/.test(model) ? ratios : [...ratios, '1:4', '4:1', '1:8', '8:1'],
-    resolutions: profile.provider === 'google' && /gemini-2\.5-/.test(model) ? []
+    resolutions: (profile.provider === 'google' && /gemini-2\.5-/.test(model)) || (profile.provider === 'fal' && firstGeneration) ? []
+      : profile.provider === 'fal' && /nano-banana-2(?:$|\/)/.test(model) ? ['512', '1K', '2K', '4K']
       : firstGeneration || flashLite ? ['1K'] : flash31 && profile.provider === 'google' ? ['512', '1K', '2K', '4K'] : ['1K', '2K', '4K'],
   }
 }
 
-export function getImageModelParams(profile: ApiProfile, params: TaskParams): { aspect_ratio: string; resolution: string | undefined; quality: TaskParams['quality'] | undefined } {
+export function getImageModelParams(profile: ApiProfile, params: TaskParams, imageSize?: CustomProviderImageSize): { aspect_ratio: string; resolution: string | undefined; quality: TaskParams['quality'] | undefined } {
   const family = getImageModelFamily(profile)
+  const quality = family === 'grok' && supportsGrokQuality(profile.model)
+    ? params.quality === 'low' || params.quality === 'medium' ? params.quality : 'auto'
+    : undefined
+  if (imageSize?.mode === 'aspect-ratio') return {
+    aspect_ratio: imageSize.ratios.includes(params.aspect_ratio ?? '') ? params.aspect_ratio! : imageSize.ratios[0],
+    resolution: imageSize.resolutions.includes(params.resolution?.toUpperCase() ?? '') ? params.resolution!.toUpperCase() : imageSize.resolutions[0],
+    quality: family ? quality : params.quality,
+  }
   const options = getImageModelOptions(profile)
-  const aspectRatio = options.ratios.includes(params.aspect_ratio ?? '') ? params.aspect_ratio! : 'auto'
-  const resolution = options.resolutions.includes(params.resolution?.toUpperCase() ?? '') ? params.resolution!.toUpperCase() : '1K'
+  const aspectRatio = family === 'seedream' && params.aspect_ratio === 'custom' ? 'custom' : options.ratios.includes(params.aspect_ratio ?? '') ? params.aspect_ratio! : 'auto'
+  const resolution = options.resolutions.includes(params.resolution?.toUpperCase() ?? '') ? params.resolution!.toUpperCase() : family === 'seedream' ? '2K' : '1K'
   return {
     aspect_ratio: aspectRatio,
-    resolution: options.resolutions.length ? resolution : undefined,
-    quality: family === 'grok' && supportsGrokQuality(profile.model)
-      ? params.quality === 'low' || params.quality === 'medium' ? params.quality : 'auto'
-      : undefined,
+    resolution: aspectRatio === 'custom' ? undefined : options.resolutions.length ? resolution : undefined,
+    quality,
   }
+}
+
+export function getSeedreamSize(profile: ApiProfile, params: TaskParams) {
+  const modelParams = getImageModelParams(profile, params)
+  if (modelParams.aspect_ratio === 'custom') return normalizeSeedreamImageSize(params.size) || '2K'
+  if (modelParams.aspect_ratio === 'auto') return modelParams.resolution!
+  return getSeedreamRatioSize(modelParams.resolution!, modelParams.aspect_ratio)
+}
+
+/** 尺寸弹窗选中的结果：档位写回分辨率并交给模型定比例，宽高则固定为自定义尺寸 */
+export function getSeedreamSizeParams(size: string): Partial<TaskParams> {
+  return (SEEDREAM_RESOLUTIONS as readonly string[]).includes(size) ? { size, aspect_ratio: 'auto', resolution: size } : { size, aspect_ratio: 'custom', resolution: undefined }
 }

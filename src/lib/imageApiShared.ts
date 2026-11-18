@@ -13,9 +13,16 @@ export const MIME_MAP: Record<string, string> = {
 
 /** GPT Image 2.6 的 complexity、SVG 和 GIF 字段；Images API 生成请求和 Responses 图像工具格式相同 */
 export function applyGptImage26Params(target: Record<string, unknown>, params: TaskParams, profile: ApiProfile) {
+  if (profile.codexCli && profile.provider !== 'fal') return
   if (params.complexity !== 'auto') target.complexity = params.complexity
   if (params.output_format === 'svg') {
-    target.svg = { model: profile.svgModel?.trim() || DEFAULT_SVG_MODEL }
+    const model = profile.svgModel?.trim() || (target.type === 'image_generation' ? undefined : DEFAULT_SVG_MODEL)
+    if (model || profile.svgReasoningEffort) {
+      target.svg = {
+        ...(model ? { model } : {}),
+        ...(profile.svgReasoningEffort ? { reasoning: { effort: profile.svgReasoningEffort } } : {}),
+      }
+    }
   }
   if (params.output_format === 'gif') {
     target.frame_count = params.frame_count
@@ -28,6 +35,7 @@ export const MAX_IMAGE_INPUT_PAYLOAD_BYTES = 512 * 1024 * 1024
 export const PROMPT_REWRITE_GUARD_PREFIX = 'Treat everything after this line as one complete image-generation prompt, including the resolution instruction. Follow it exactly without rewriting or omitting anything:'
 
 export interface CallApiOptions {
+  signal?: AbortSignal
   settings: AppSettings
   prompt: string
   params: TaskParams
@@ -165,6 +173,7 @@ export function maybeAppendStreamingHint(message: string, status: number, stream
   const transparentMessage = maybeAppendTransparentBackgroundHint(message)
   if (transparentMessage !== message) return transparentMessage
   if (IMAGE_TOOL_DROPPED_ERROR.test(message)) return message
+  if (/hosted image_generation cannot be forced/i.test(message)) return message
   if (!streamImages) return message
   if (status === 401 || status === 403 || status === 404 || status === 408 || status === 429 || status >= 500) {
     return message
@@ -287,7 +296,7 @@ export function mergeActualParams(...sources: Array<Partial<TaskParams> | undefi
   return Object.keys(merged).length ? merged : undefined
 }
 
-export function mergeConcurrentApiResults(results: PromiseSettledResult<CallApiResult>[]): CallApiResult {
+function mergeConcurrentApiResults(results: PromiseSettledResult<CallApiResult>[]): CallApiResult {
   const successfulResults = results
     .filter((result): result is PromiseFulfilledResult<CallApiResult> => result.status === 'fulfilled')
     .map((result) => result.value)
@@ -318,4 +327,15 @@ export function mergeConcurrentApiResults(results: PromiseSettledResult<CallApiR
     ...(searchGrounding.length ? { searchGrounding } : {}),
     ...(failedRequests.length ? { failedRequests } : {}),
   }
+}
+
+export async function callConcurrentImageRequests(opts: CallApiOptions, callSingle: (options: CallApiOptions) => Promise<CallApiResult>) {
+  const results = await Promise.allSettled(Array.from({ length: opts.params.n }, (_, requestIndex) => callSingle({
+    ...opts,
+    params: { ...opts.params, n: 1 },
+    onPartialImage: opts.onPartialImage
+      ? (partial) => opts.onPartialImage?.({ ...partial, requestIndex })
+      : undefined,
+  })))
+  return mergeConcurrentApiResults(results)
 }

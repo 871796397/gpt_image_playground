@@ -4,18 +4,20 @@ export const DEFAULT_IMAGES_MODEL = 'gpt-image-2.6-sunburst'
 /** Images API 生成 SVG 时必填的 svg.model（负责编写 SVG 的文本模型） */
 export const DEFAULT_SVG_MODEL = 'gpt-6.1-sol'
 
-export function getImageModelFamily(profile: Pick<ApiProfile, 'provider' | 'apiMode' | 'model'>): 'gemini' | 'grok' | null {
+export function getImageModelFamily(profile: Pick<ApiProfile, 'provider' | 'apiMode' | 'model'>): 'gemini' | 'grok' | 'seedream' | null {
   if (profile.provider === 'openai' && profile.apiMode === 'responses') return null
   if (profile.provider === 'google') return 'gemini'
   if (profile.provider === 'xai') return 'grok'
+  if (profile.provider === 'bytedance') return 'seedream'
   const model = profile.model.trim().toLowerCase()
+  if (/(?:^|\/)(?:doubao-)?seedream[-_/ ]*v?5[._-]5(?:$|[-_/ ])/.test(model)) return 'seedream'
   if (/(?:^|\/)gemini-[^/]*image|(?:^|\/)(?:gemini-)?nano[-_]?banana/.test(model)) return 'gemini'
   if (/(?:^|\/)grok-[^/]*image|(?:^|\/)grok-imagine-\d/.test(model)) return 'grok'
   return null
 }
 
 export function supportsGrokQuality(model: string) {
-  return /grok-imagine-image-2[.-]0(?:$|[-/])/.test(model.toLowerCase())
+  return /grok-imagine-image(?:-|\/v)2[.-]0(?:$|[-/])/.test(model.toLowerCase())
 }
 
 export function usesGrokSizeParams(profile: ApiProfile) {
@@ -26,6 +28,11 @@ export function getImageGenerationModel(profile: ApiProfile) {
   return profile.provider === 'openai' && profile.apiMode === 'responses'
     ? profile.imageGenerationModel?.trim() ?? ''
     : profile.model
+}
+
+/** 能力判断用：Responses 未填图像模型时按官方默认模型计，与实际不发送 model 的行为区分 */
+export function getEffectiveImageGenerationModel(profile: ApiProfile) {
+  return getImageGenerationModel(profile) || (profile.provider === 'openai' && profile.apiMode === 'responses' ? DEFAULT_IMAGES_MODEL : '')
 }
 
 /** 从 `gpt-image-2.6-flare`、`openai/gpt-image-2.5/sunburst` 等 ID 中解析主次版本号，无法识别时返回 null */
@@ -52,14 +59,14 @@ export function isGptImage26PlusModel(model: string) {
 
 /** xhigh / max 质量；fal.ai 的 2.6 端点质量只到 high */
 export function supportsExtendedQuality(profile: ApiProfile) {
-  const model = getImageGenerationModel(profile)
+  const model = getEffectiveImageGenerationModel(profile)
   if (profile.provider === 'fal' && isGptImage26PlusModel(model)) return false
   return isGptImage25PlusModel(model)
 }
 
-/** complexity、SVG 和 GIF：OpenAI 的 Images API、Responses 图像工具（含 Codex CLI）、fal.ai 的 2.6 端点和自定义服务商（由模板决定发送哪些）都支持 */
+/** 模型级 complexity、SVG 和 GIF 能力；接口兼容限制由 paramCompatibility 处理 */
 export function supportsGptImage26Params(profile: ApiProfile) {
-  return isGptImage26PlusModel(getImageGenerationModel(profile))
+  return isGptImage26PlusModel(getEffectiveImageGenerationModel(profile))
 }
 
 /** markup：OpenAI 只有 Images API 的编辑接口支持，Responses 图像工具不接受；fal.ai 从 2.6 端点开始提供 */
